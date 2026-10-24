@@ -13,7 +13,7 @@ fi
 
 run_cli() {
 	if [[ -n "$connection" ]]; then
-		"$cli" "--container-connection=$connection" "$@"
+		"$cli" "--connection=$connection" "$@"
 	else
 		"$cli" "$@"
 	fi

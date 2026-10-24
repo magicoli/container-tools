@@ -149,7 +149,7 @@ $podman->destroy('example');
 
 ## Bash
 
-`bin/container-tools` is a Bash wrapper around the PSR-4 command in `src/Console`. `--container-connection NAME` and `--container-connection=NAME` select a configured Podman connection; otherwise the standard Podman `CONTAINER_CONNECTION` setting is inherited. `CONTAINER_HOST` can point directly to a Unix socket or HTTP endpoint.
+`bin/container-tools` is a Bash wrapper around the PSR-4 command in `src/Console`. `-c|--connection NAME` and `--connection=NAME` select a configured Podman connection (the same option Podman uses); otherwise the standard Podman `CONTAINER_CONNECTION` setting is inherited. `CONTAINER_HOST` can point directly to a Unix socket or HTTP endpoint.
 
 ## Build and run a test image
 
@@ -171,4 +171,4 @@ The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples sha
 
 ## Tests
 
-`composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, creates uniquely named containers, exercises their lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--container-connection NAME` to select a configured Podman connection.
+`composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, creates uniquely named containers, exercises their lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--connection NAME` to select a configured Podman connection.

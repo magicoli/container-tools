@@ -22,9 +22,9 @@ for ($i = 0; $i < count($arguments); $i++) {
     if ($arguments[$i] === "--") {
         break;
     }
-    if ($arguments[$i] === "--container-connection") {
+    if ($arguments[$i] === "--connection" || $arguments[$i] === "-c") {
         if (!isset($arguments[$i + 1]) || str_starts_with($arguments[$i + 1], "--")) {
-            fwrite(STDERR, "container-tools: --container-connection requires a name\n");
+            fwrite(STDERR, "container-tools: {$arguments[$i]} requires a name\n");
             exit(2);
         }
         $connection = $arguments[$i + 1];
@@ -32,10 +32,20 @@ for ($i = 0; $i < count($arguments); $i++) {
         $i--;
         continue;
     }
-    if (str_starts_with($arguments[$i], "--container-connection=")) {
-        $connection = substr($arguments[$i], strlen("--container-connection="));
+    if (str_starts_with($arguments[$i], "--connection=")) {
+        $connection = substr($arguments[$i], strlen("--connection="));
         if ($connection === "") {
-            fwrite(STDERR, "container-tools: --container-connection requires a name\n");
+            fwrite(STDERR, "container-tools: --connection requires a name\n");
+            exit(2);
+        }
+        array_splice($arguments, $i, 1);
+        $i--;
+        continue;
+    }
+    if (str_starts_with($arguments[$i], "-c=")) {
+        $connection = substr($arguments[$i], 3);
+        if ($connection === "") {
+            fwrite(STDERR, "container-tools: -c requires a name\n");
             exit(2);
         }
         array_splice($arguments, $i, 1);
