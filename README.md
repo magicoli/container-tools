@@ -83,9 +83,11 @@ The integration fixtures include Caddy and OpenSSH variants based on Debian 12 a
 ./bin/container-tools create --name=debian-caddy --image=localhost/caddy-sshd:debian12
 ./bin/container-tools status debian-caddy
 ./bin/container-tools wait-ready debian-caddy -- wget -q -O /dev/null http://127.0.0.1/
+# Open an interactive shell in the running container:
+podman exec -it debian-caddy /bin/bash
 ```
 
-The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples share the Caddyfile and entrypoint in `examples/caddy/`. `EXPOSE` records the ports inside the image; it does not publish ports on the host.
+The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples share the Caddyfile and entrypoint in `examples/caddy/`. Open an interactive shell in an Alpine container with `podman exec -it alpine-caddy /bin/sh`. `EXPOSE` records the ports inside the image; it does not publish ports on the host.
 
 ## Tests
 
