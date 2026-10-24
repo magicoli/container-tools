@@ -13,7 +13,7 @@ final class Podman implements ContainerManagerInterface
 {
     public function __construct(
         private readonly string $binary = 'podman',
-        private readonly ?string $connection = null,
+        private readonly ?string $remote = null,
     ) {}
 
     public function imageAvailable(string $image): bool
@@ -156,8 +156,8 @@ final class Podman implements ContainerManagerInterface
     private function command(array $arguments): array
     {
         $command = [$this->binary];
-        if ($this->connection !== null && $this->connection !== '') {
-            array_push($command, '--connection', $this->connection);
+        if ($this->remote !== null && $this->remote !== '') {
+            array_push($command, '--connection', $this->remote);
         }
 
         return [...$command, ...$arguments];

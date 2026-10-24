@@ -25,10 +25,10 @@ PHP);
     return $binary;
 }
 
-test('Podman keeps arguments separate and applies the connection to every command', function () {
+test('Podman keeps arguments separate and applies the remote to every command', function () {
     $binary = podman_stub();
     $directory = dirname($binary);
-    $podman = new Podman($binary, 'hal');
+    $podman = new Podman($binary, remote: 'hal');
 
     $created = $podman->create(new ContainerDefinition('sample', 'alpine:3.22', ['test.caller' => 'unit'], null, ['sh', '-c', 'sleep 10']));
     expect($created->status)->toBe(0);
@@ -50,9 +50,10 @@ test('Podman keeps arguments separate and applies the connection to every comman
     rmdir($directory);
 });
 
-test('a container definition requires a name, image, and startup command', function () {
+test('a container definition requires a name and image but may use the image command', function () {
     expect(fn() => new ContainerDefinition('', 'alpine:3.22', [], null, ['sh']))
         ->toThrow(InvalidArgumentException::class);
-    expect(fn() => new ContainerDefinition('sample', 'alpine:3.22'))
+    expect(fn() => new ContainerDefinition('sample', ''))
         ->toThrow(InvalidArgumentException::class);
+    expect((new ContainerDefinition('sample', 'alpine:3.22'))->command)->toBe([]);
 });

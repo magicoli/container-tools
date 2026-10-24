@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+AUTOLOAD=$SCRIPT_DIR/../vendor/autoload.php
+if [[ ! -r "$AUTOLOAD" ]]; then
+	AUTOLOAD=$SCRIPT_DIR/../autoload.php
+fi
+if [[ ! -r "$AUTOLOAD" ]]; then
+	AUTOLOAD=$SCRIPT_DIR/../../../autoload.php
+fi
+if [[ ! -r "$AUTOLOAD" ]]; then
+	printf 'container-tools: Composer autoloader not found\n' >&2
+	exit 1
+fi
+
+CONTAINER_TOOLS_AUTOLOAD=$AUTOLOAD exec php -r '
+require getenv("CONTAINER_TOOLS_AUTOLOAD");
+$arguments = array_slice($argv, 1);
+$remote = getenv("CONTAINER_REMOTE") ?: null;
+if (($arguments[0] ?? "") === "--remote") {
+    array_shift($arguments);
+    $remote = array_shift($arguments) ?: null;
+}
+$binary = getenv("PODMAN_BINARY") ?: "podman";
+$manager = new \Magicoli\ContainerTools\Container\Driver\Podman($binary, $remote);
+exit((new \Magicoli\ContainerTools\Console\ContainerToolsCommand($manager))->run($arguments));
+' -- "$@"

@@ -21,7 +21,7 @@
         }
     },
     "bin": [
-        "bin/container-tools.php"
+        "bin/container-tools"
     ],
     "scripts": {
         "test": "pest"

@@ -12,7 +12,7 @@ The public API is under `Magicoli\ContainerTools\Container`: `ContainerManagerIn
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\Driver\Podman;
 
-$podman = new Podman(connection: getenv('CONTAINER_CONNECTION') ?: null);
+$podman = new Podman(remote: getenv('CONTAINER_REMOTE') ?: null);
 $podman->pull('docker.io/library/alpine:3.22');
 $podman->create(new ContainerDefinition('example', 'docker.io/library/alpine:3.22', [], null, [
     'sh', '-c', 'while :; do sleep 3600; done',
@@ -23,22 +23,15 @@ $ready = $podman->waitUntilReady('example', ['sh', '-c', 'test -r /etc/os-releas
 
 ## Bash
 
-Composer exposes `container-tools.php` as a binary. `CONTAINER_CONNECTION` selects a configured Podman connection, and `PODMAN_BINARY` can select a non-default Podman executable.
+`bin/container-tools` is a Bash wrapper around the PSR-4 command in `src/Console`. `--remote NAME` or `CONTAINER_REMOTE=NAME` selects a configured Podman remote (the driver passes it to Podman as `--connection`), and `PODMAN_BINARY` can select a non-default Podman executable.
 
 ```bash
-container-tools.php image-pull docker.io/library/alpine:3.22
-container-tools.php create --name example --image docker.io/library/alpine:3.22 -- sh -c 'while :; do sleep 3600; done'
-container-tools.php start example
-container-tools.php ready example -- sh -c 'test -r /etc/os-release'
-container-tools.php running example
+./bin/container-tools image-pull docker.io/library/alpine:3.22
+./bin/container-tools create --name example --image docker.io/library/alpine:3.22 --start -- sh -c 'while :; do sleep 3600; done'
+./bin/container-tools ready example -- sh -c 'test -r /etc/os-release'
+./bin/container-tools running example
 ```
 
 ## Tests
 
-`composer test` runs unit tests. The two real-container tests are opt-in:
-
-```bash
-PODMAN_INTEGRATION=1 composer test -- --filter='Podman integration'
-```
-
-They create uniquely named containers and remove them afterward. Set `CONTAINER_CONNECTION` to use a remote Podman connection and `PODMAN_TEST_IMAGE` to override the Alpine test image.
+`composer test` runs unit tests and real Podman integration tests. Podman and PHP are required; the integration tests create uniquely named containers and remove them afterward. Set `CONTAINER_REMOTE` or pass `--remote NAME` to use a configured Podman remote and `PODMAN_TEST_IMAGE` to override the Alpine test image.

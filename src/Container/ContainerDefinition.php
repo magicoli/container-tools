@@ -15,8 +15,8 @@ final readonly class ContainerDefinition
         public ?string $memory = null,
         public array $command = [],
     ) {
-        if ($name === '' || $image === '' || $command === []) {
-            throw new InvalidArgumentException('A container needs a name, an image, and a command.');
+        if ($name === '' || $image === '') {
+            throw new InvalidArgumentException('A container needs a name and an image.');
         }
     }
 }

@@ -5,7 +5,7 @@ use Magicoli\ContainerTools\Container\Driver\Podman;
 
 function integration_podman(): Podman
 {
-    return new Podman(getenv('PODMAN_BINARY') ?: 'podman', getenv('CONTAINER_CONNECTION') ?: null);
+    return new Podman(getenv('PODMAN_BINARY') ?: 'podman', getenv('CONTAINER_REMOTE') ?: null);
 }
 
 function integration_name(string $caller): string
@@ -42,13 +42,13 @@ describe('Podman integration', function () {
                 $podman->remove($name, true);
             }
         }
-    })->skip(fn() => getenv('PODMAN_INTEGRATION') !== '1', 'set PODMAN_INTEGRATION=1 to create a real Podman container');
+    });
 
     test('Bash creates, starts, and checks readiness through the command adapter', function () {
         $name = integration_name('bash');
-        $cli = dirname(__DIR__, 2) . '/bin/container-tools.php';
+        $cli = dirname(__DIR__, 2) . '/bin/container-tools';
         $script = __DIR__ . '/podman-create-container.sh';
-        $process = proc_open(['bash', $script, $cli, $name, integration_image()], [
+        $process = proc_open(['bash', $script, $cli, $name, integration_image(), getenv('CONTAINER_REMOTE') ?: ''], [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],
@@ -63,5 +63,5 @@ describe('Podman integration', function () {
 
         expect($status)->toBe(0, $stderr);
         expect(trim((string) $stdout))->toEndWith('true');
-    })->skip(fn() => getenv('PODMAN_INTEGRATION') !== '1', 'set PODMAN_INTEGRATION=1 to create a real Podman container');
+    });
 });
