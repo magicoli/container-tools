@@ -4,327 +4,311 @@ declare(strict_types=1);
 
 namespace Magicoli\ContainerTools\Container\Driver;
 
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
 use Magicoli\ContainerTools\Container\CommandResult;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\ResponseInterface;
+use Throwable;
 
-/** Manages Podman containers without passing commands through a shell. */
+/** Podman adapter using its official Docker-compatible REST API. */
 final class Podman implements ContainerManagerInterface
 {
-    public function __construct(
-        private readonly string $binary = 'podman',
-        private readonly ?string $connection = null,
-    ) {}
+    private readonly PodmanConnection $connection;
+    private readonly ClientInterface $http;
+    private readonly string $apiVersion;
+
+    public function __construct(?string $connection = null, ?ClientInterface $httpClient = null)
+    {
+        if ($httpClient !== null) {
+            $this->connection = new PodmanConnection();
+            $this->http = $httpClient;
+        } else {
+            if (!extension_loaded('curl')) {
+                throw new \RuntimeException('The PHP curl extension is required to connect to the Podman REST API.');
+            }
+            $this->connection = new PodmanConnection();
+            $endpoint = $this->connection->open($connection);
+            $this->http = new Client([
+                'base_uri' => $endpoint['base_uri'],
+                'http_errors' => false,
+                'connect_timeout' => 10,
+                'timeout' => 0,
+                'curl' => $endpoint['curl'],
+            ]);
+        }
+        $this->apiVersion = $this->negotiateApiVersion();
+    }
 
     public function imageAvailable(string $image): bool
     {
-        return $this->run(['image', 'inspect', $image])->succeeded();
+        return $this->request('GET', $this->path('images/' . rawurlencode($image) . '/json'))->succeeded();
     }
 
     public function pull(string $image): CommandResult
     {
         if ($this->imageAvailable($image)) {
-            return new CommandResult(0, data: [
-                'operation' => 'image-pull',
-                'summary' => 'Image already available',
-                'image' => $image,
-                'pulled' => false,
-            ]);
+            return new CommandResult(0, data: ['operation' => 'image-pull', 'summary' => 'Image already available', 'image' => $image, 'pulled' => false]);
         }
-
-        $pulled = $this->run(['pull', $image]);
-        return $pulled->withData([
-            'operation' => 'image-pull',
-            'summary' => $pulled->succeeded() ? 'Image pulled' : 'Image pull failed',
-            'image' => $image,
-            'pulled' => true,
-        ]);
+        $result = $this->request('POST', $this->path('images/create') . '?fromImage=' . rawurlencode($image));
+        return $result->withData(['operation' => 'image-pull', 'summary' => $result->succeeded() ? 'Image pulled' : 'Image pull failed', 'image' => $image, 'pulled' => true]);
     }
 
     public function create(ContainerDefinition $container): CommandResult
     {
-        $name = $container->name;
-        if ($name !== null && $this->inspect($name)->succeeded()) {
-            return new CommandResult(1, stderr: "Container already exists: $name\n", data: [
-                'operation' => 'create',
-                'summary' => 'Container already exists; nothing was created',
-                'requested' => $this->requestedDefinition($container),
-            ]);
-        }
-
-        $arguments = ['create'];
-        if ($name !== null) {
-            array_push($arguments, '--name', $name);
-        }
-        $hostname = $container->hostname ?? $name;
+        $query = $container->name === null ? '' : '?name=' . rawurlencode($container->name);
+        $config = ['Image' => $container->image];
+        $hostname = $container->hostname ?? $container->name;
         if ($hostname !== null) {
-            array_push($arguments, '--hostname', $hostname);
+            $config['Hostname'] = $hostname;
         }
-        foreach ($container->labels as $key => $value) {
-            $arguments[] = '--label';
-            $arguments[] = is_int($key) ? (string) $value : "$key=$value";
+        if ($container->labels !== []) {
+            $config['Labels'] = $this->labels($container->labels);
+        }
+        if ($container->command !== []) {
+            $config['Cmd'] = $container->command;
         }
         if ($container->memory !== null && $container->memory !== '') {
-            array_push($arguments, '--memory', $container->memory);
+            $config['HostConfig'] = ['Memory' => $this->memoryBytes($container->memory)];
         }
 
-        $created = $this->run([...$arguments, $container->image, ...$container->command]);
-        if (!$created->succeeded()) {
-            return $created->withData([
-                'operation' => 'create',
-                'summary' => 'Container creation failed',
-                'requested' => $this->requestedDefinition($container),
-            ]);
+        $result = $this->request('POST', $this->path('containers/create') . $query, $config);
+        if (!$result->succeeded()) {
+            return $result->withData(['operation' => 'create', 'summary' => 'Container creation failed', 'requested' => $this->requestedDefinition($container)]);
         }
 
-        $id = trim($created->stdout);
-        $details = $id === '' ? null : $this->containerDetails($id);
-        if ($details === null) {
-            return new CommandResult(1, $created->stdout, $created->stderr . "Container was created, but Podman did not return its details. ID: $id\n", [
-                'operation' => 'create',
-                'summary' => 'Container created; details could not be inspected',
-                'id' => $id,
-                'requested' => $this->requestedDefinition($container),
-            ]);
+        $created = json_decode($result->stdout, true);
+        $id = is_array($created) ? ($created['Id'] ?? null) : null;
+        if (!is_string($id) || $id === '') {
+            return new CommandResult(1, $result->stdout, "Podman returned no container ID after creation.\n", ['operation' => 'create', 'summary' => 'Container was created but its ID was missing']);
         }
-
-        return new CommandResult(0, data: [
+        $inspection = $this->inspect($id);
+        if (!$inspection->succeeded()) {
+            return $inspection->withData(['operation' => 'create', 'summary' => 'Container was created but could not be inspected', 'id' => $id]);
+        }
+        return new CommandResult(0, $result->stdout, $result->stderr, [
             'operation' => 'create',
             'summary' => 'Container created',
-            'container' => $details,
+            'container' => $inspection->data['container'],
             'requested' => $this->requestedDefinition($container),
         ]);
     }
 
     public function start(string $name): CommandResult
     {
-        $status = $this->status($name);
-        if ($status->succeeded() && trim($status->stdout) === 'running') {
-            return new CommandResult(0, data: [
-                'operation' => 'start',
-                'summary' => 'Container is already running',
-                'container' => $this->containerDetails($name),
-            ]);
-        }
+        $result = $this->request('POST', $this->path('containers/' . rawurlencode($name) . '/start'));
+        return $this->lifecycleResult($result, 'start', 'Container started', $name);
+    }
 
-        $started = $this->run(['start', $name]);
-        return $started->withData([
-            'operation' => 'start',
-            'summary' => $started->succeeded() ? 'Container started' : 'Container start failed',
-            'container' => $started->succeeded() ? $this->containerDetails($name) : null,
-        ]);
+    public function stop(string $name): CommandResult
+    {
+        $result = $this->request('POST', $this->path('containers/' . rawurlencode($name) . '/stop'));
+        return $this->lifecycleResult($result, 'stop', 'Container stopped', $name);
     }
 
     public function inspect(string $name): CommandResult
     {
-        $result = $this->run(['inspect', $name]);
+        $result = $this->request('GET', $this->path('containers/' . rawurlencode($name) . '/json'));
         if (!$result->succeeded()) {
-            return $result->withData([
-                'operation' => 'inspect',
-                'summary' => 'Container inspection failed',
-                'reference' => $name,
-            ]);
+            return $result->withData(['operation' => 'inspect', 'summary' => 'Container inspection failed', 'reference' => $name]);
         }
-
-        $decoded = json_decode($result->stdout, true);
-        if (!is_array($decoded) || !isset($decoded[0]) || !is_array($decoded[0])) {
-            return new CommandResult(1, $result->stdout, "Podman returned an invalid inspection document for $name\n", [
-                'operation' => 'inspect',
-                'summary' => 'Container inspection returned invalid data',
-                'reference' => $name,
-            ]);
+        $details = json_decode($result->stdout, true);
+        if (!is_array($details)) {
+            return new CommandResult(1, $result->stdout, "Podman returned invalid container inspection data.\n", ['operation' => 'inspect', 'reference' => $name]);
         }
-
-        return $result->withData([
-            'operation' => 'inspect',
-            'summary' => 'Container details',
-            'container' => $this->detailsFromInspection($decoded[0]),
-        ]);
+        return $result->withData(['operation' => 'inspect', 'summary' => 'Container details', 'container' => $this->details($details)]);
     }
 
     public function status(string $name): CommandResult
     {
         $inspection = $this->inspect($name);
         if (!$inspection->succeeded()) {
-            return $inspection->withData([
-                'operation' => 'status',
-                'summary' => 'Could not read container status',
-            ]);
+            return $inspection->withData(['operation' => 'status', 'summary' => 'Could not read container status']);
         }
-        $container = json_decode($inspection->stdout, true);
-        if (!is_array($container) || !isset($container[0]['State']['Status'])) {
-            return new CommandResult(1, '', "Podman returned an invalid inspection document for $name\n", [
-                'operation' => 'status',
-                'summary' => 'Could not read container status from Podman inspection data',
-                'container' => ['reference' => $name],
-            ]);
-        }
-
-        return new CommandResult(0, $container[0]['State']['Status'] . "\n", data: [
-            'operation' => 'status',
-            'summary' => 'Container status',
-            'container' => $this->detailsFromInspection($container[0]),
-        ]);
+        $status = $inspection->data['container']['status'] ?? 'unknown';
+        return new CommandResult(0, $status . "\n", data: ['operation' => 'status', 'summary' => 'Container status', 'container' => $inspection->data['container']]);
     }
 
-    /** Run a probe until it succeeds or the readiness timeout expires. */
-    public function waitUntilReady(
-        string $name,
-        array $probe,
-        int $timeoutSeconds = 30,
-        int $intervalMicroseconds = 250_000,
-    ): CommandResult {
+    public function waitUntilReady(string $name, array $probe, int $timeoutSeconds = 30, int $intervalMicroseconds = 250_000): CommandResult
+    {
         $deadline = microtime(true) + $timeoutSeconds;
         $startedAt = microtime(true);
         do {
             $result = $this->exec($name, $probe);
             if ($result->succeeded()) {
-                return $result->withData([
-                    'operation' => 'wait-ready',
-                    'summary' => 'Container readiness probe passed',
-                    'container' => $this->containerDetails($name) ?? ['reference' => $name],
-                    'probe' => $probe,
-                    'elapsed_seconds' => round(microtime(true) - $startedAt, 3),
-                ]);
+                return $result->withData(['operation' => 'wait-ready', 'summary' => 'Container readiness probe passed', 'probe' => $probe, 'elapsed_seconds' => round(microtime(true) - $startedAt, 3)]);
             }
             if (microtime(true) >= $deadline) {
-                return $result->withData([
-                    'operation' => 'wait-ready',
-                    'summary' => 'Container readiness probe timed out',
-                    'container' => $this->containerDetails($name) ?? ['reference' => $name],
-                    'probe' => $probe,
-                    'elapsed_seconds' => round(microtime(true) - $startedAt, 3),
-                ]);
+                return $result->withData(['operation' => 'wait-ready', 'summary' => 'Container readiness probe timed out', 'probe' => $probe, 'elapsed_seconds' => round(microtime(true) - $startedAt, 3)]);
             }
             usleep($intervalMicroseconds);
         } while (true);
     }
 
-    public function exec(string $name, array $command, ?string $input = null): CommandResult
+    public function exec(string $name, array $command): CommandResult
     {
-        $result = $this->run(['exec', ...($input === null ? [] : ['-i']), $name, ...$command], $input);
-        return $result->withData([
-            'operation' => 'exec',
-            'summary' => $result->succeeded() ? 'Command executed in container' : 'Command failed in container',
-            'container' => ['reference' => $name],
-            'exit_code' => $result->status,
+        $created = $this->request('POST', $this->path('containers/' . rawurlencode($name) . '/exec'), [
+            'AttachStdin' => false,
+            'AttachStdout' => true,
+            'AttachStderr' => true,
+            'Tty' => false,
+            'Cmd' => array_values($command),
         ]);
+        if (!$created->succeeded()) {
+            return $created->withData(['operation' => 'exec', 'container' => ['reference' => $name]]);
+        }
+        $execId = json_decode($created->stdout, true)['Id'] ?? null;
+        if (!is_string($execId) || $execId === '') {
+            return new CommandResult(1, $created->stdout, "Podman returned no exec session ID.\n", ['operation' => 'exec']);
+        }
+        $started = $this->request('POST', $this->path('exec/' . rawurlencode($execId) . '/start'), ['Detach' => false, 'Tty' => false]);
+        if (!$started->succeeded()) {
+            return $started->withData(['operation' => 'exec', 'container' => ['reference' => $name]]);
+        }
+        [$stdout, $stderr] = $this->demultiplex($started->stdout);
+        $inspection = $this->request('GET', $this->path('exec/' . rawurlencode($execId) . '/json'));
+        $exitCode = json_decode($inspection->stdout, true)['ExitCode'] ?? 0;
+        $exitCode = is_int($exitCode) ? $exitCode : 0;
+        return new CommandResult($exitCode, $stdout, $stderr, ['operation' => 'exec', 'summary' => $exitCode === 0 ? 'Command executed in container' : 'Command failed in container', 'container' => ['reference' => $name], 'exit_code' => $exitCode]);
     }
 
     public function destroy(string $name): CommandResult
     {
         $inspection = $this->inspect($name);
-        $details = $inspection->data['container'] ?? null;
-        if (!$inspection->succeeded() || !is_array($details)) {
-            return new CommandResult($inspection->status, '', "Cannot destroy container '$name' because Podman could not inspect it.\n" . $inspection->stderr, [
-                'operation' => 'destroy',
-                'summary' => 'Container was not destroyed because it could not be inspected',
-                'container' => ['reference' => $name],
-            ]);
+        if (!$inspection->succeeded()) {
+            return $inspection->withData(['operation' => 'destroy', 'summary' => 'Container was not destroyed because it could not be inspected']);
         }
-
-        $destroyed = $this->run(['rm', '--force', $name]);
-        return $destroyed->withData([
-            'operation' => 'destroy',
-            'summary' => $destroyed->succeeded() ? 'Container destroyed' : 'Container destruction failed',
-            'container' => $details,
-        ]);
+        $result = $this->request('DELETE', $this->path('containers/' . rawurlencode($name) . '?force=true'));
+        return $result->withData(['operation' => 'destroy', 'summary' => $result->succeeded() ? 'Container destroyed' : 'Container destruction failed', 'container' => $inspection->data['container']]);
     }
 
-    public function run(array $arguments, ?string $input = null): CommandResult
+    private function request(string $method, string $path, ?array $json = null): CommandResult
     {
-        $process = @proc_open($this->command($arguments), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $this->environment());
-        if (!is_resource($process)) {
-            return new CommandResult(127, '', "Could not start {$this->binary}\n");
+        try {
+            $options = [];
+            if ($json !== null) {
+                $options['json'] = $json;
+            }
+            $response = $this->http->request($method, $path, $options);
+            return $this->responseResult($response);
+        } catch (GuzzleException|Throwable $exception) {
+            return new CommandResult(1, '', $exception->getMessage() . "\n");
         }
+    }
 
-        if ($input !== null && $input !== '') {
-            fwrite($pipes[0], $input);
+    private function responseResult(ResponseInterface $response): CommandResult
+    {
+        $body = (string) $response->getBody();
+        $status = $response->getStatusCode();
+        if (($status >= 200 && $status < 300) || $status === 304) {
+            return new CommandResult(0, $body);
         }
-        fclose($pipes[0]);
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-        $stdout = '';
-        $stderr = '';
-        while (true) {
-            $read = [];
-            if (!feof($pipes[1])) {
-                $read[] = $pipes[1];
-            }
-            if (!feof($pipes[2])) {
-                $read[] = $pipes[2];
-            }
-            if ($read === []) {
+        $document = json_decode($body, true);
+        $message = is_array($document) ? ($document['message'] ?? $document['cause'][0]['message'] ?? null) : null;
+        return new CommandResult($status, '', (is_string($message) ? $message : trim($body ?: $response->getReasonPhrase())) . "\n", ['http_status' => $status]);
+    }
+
+    private function negotiateApiVersion(): string
+    {
+        $response = null;
+        for ($attempt = 0; $attempt < 30; $attempt++) {
+            $response = $this->request('GET', 'version');
+            if ($response->succeeded()) {
                 break;
             }
-            $write = $except = [];
-            if (stream_select($read, $write, $except, 0, 100_000) === false) {
-                break;
-            }
-            foreach ($read as $stream) {
-                $chunk = fread($stream, 8192);
-                if ($stream === $pipes[1]) {
-                    $stdout .= $chunk;
-                } else {
-                    $stderr .= $chunk;
-                }
-            }
+            usleep(100_000);
         }
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-
-        return new CommandResult(proc_close($process), $stdout, $stderr);
+        if (!$response->succeeded()) {
+            throw new \RuntimeException('Could not connect to the Podman REST API: ' . trim($response->stderr));
+        }
+        $version = json_decode($response->stdout, true);
+        $maximum = min('1.44', (string) ($version['ApiVersion'] ?? '1.40'));
+        $minimum = (string) ($version['MinAPIVersion'] ?? '1.24');
+        if (version_compare($maximum, $minimum, '<')) {
+            throw new \RuntimeException('The container engine exposes no compatible Docker API version.');
+        }
+        return $maximum;
     }
 
-    private function command(array $arguments): array
+    private function path(string $path): string
     {
-        return [$this->binary, ...$arguments];
+        return 'v' . $this->apiVersion . '/' . ltrim($path, '/');
     }
 
-    private function environment(): ?array
+    private function lifecycleResult(CommandResult $result, string $operation, string $success, string $name): CommandResult
     {
-        if ($this->connection === null || $this->connection === '') {
-            return null;
-        }
+        return $result->withData(['operation' => $operation, 'summary' => $result->succeeded() ? $success : "Container $operation failed", 'container' => $this->detailsAfter($name)]);
+    }
 
-        $environment = getenv();
-        if (!is_array($environment)) {
-            $environment = [];
-        }
-        $environment['CONTAINER_CONNECTION'] = $this->connection;
+    private function detailsAfter(string $name): ?array
+    {
+        $inspection = $this->inspect($name);
+        return $inspection->succeeded() ? ($inspection->data['container'] ?? null) : null;
+    }
 
-        return $environment;
+    private function details(array $container): array
+    {
+        $id = $container['Id'] ?? null;
+        return [
+            'id' => $id,
+            'short_id' => is_string($id) ? substr($id, 0, 12) : null,
+            'name' => isset($container['Name']) ? ltrim((string) $container['Name'], '/') : null,
+            'image' => $container['Config']['Image'] ?? null,
+            'hostname' => $container['Config']['Hostname'] ?? null,
+            'status' => $container['State']['Status'] ?? null,
+            'api' => $container,
+        ];
     }
 
     private function requestedDefinition(ContainerDefinition $container): array
     {
-        return [
-            'name' => $container->name,
-            'image' => $container->image,
-            'hostname' => $container->hostname ?? $container->name,
-            'labels' => $container->labels,
-            'memory' => $container->memory,
-            'command' => $container->command,
-        ];
+        return ['name' => $container->name, 'image' => $container->image, 'hostname' => $container->hostname ?? $container->name, 'labels' => $container->labels, 'memory' => $container->memory, 'command' => $container->command];
     }
 
-    private function containerDetails(string $reference): ?array
+    private function memoryBytes(string $memory): int
     {
-        $inspection = $this->inspect($reference);
-        return $inspection->succeeded() ? ($inspection->data['container'] ?? null) : null;
+        if (!preg_match('/^(\d+)([kmg]?)b?$/i', trim($memory), $parts)) {
+            throw new \InvalidArgumentException("Invalid container memory value: $memory");
+        }
+        $power = match (strtolower($parts[2])) { 'k' => 1, 'm' => 2, 'g' => 3, default => 0 };
+        return (int) $parts[1] * (1024 ** $power);
     }
 
-    private function detailsFromInspection(array $container): array
+    private function labels(array $labels): array
     {
-        $id = $container['Id'] ?? null;
-        $name = $container['Name'] ?? null;
-        return [
-            'id' => $id,
-            'short_id' => is_string($id) ? substr($id, 0, 12) : null,
-            'name' => is_string($name) ? ltrim($name, '/') : null,
-            'image' => $container['ImageName'] ?? $container['Config']['Image'] ?? null,
-            'hostname' => $container['Config']['Hostname'] ?? null,
-            'status' => $container['State']['Status'] ?? null,
-        ];
+        $normalized = [];
+        foreach ($labels as $key => $value) {
+            if (is_int($key)) {
+                [$key, $value] = array_pad(explode('=', (string) $value, 2), 2, '');
+            }
+            $normalized[(string) $key] = (string) $value;
+        }
+        return $normalized;
+    }
+
+    /** Decode Docker's multiplexed stdout/stderr stream. */
+    private function demultiplex(string $stream): array
+    {
+        $stdout = $stderr = '';
+        $offset = 0;
+        $length = strlen($stream);
+        while ($offset + 8 <= $length) {
+            $header = unpack('Cstream/C3reserved/Nlength', substr($stream, $offset, 8));
+            $offset += 8;
+            $chunkLength = $header['length'];
+            $chunk = substr($stream, $offset, $chunkLength);
+            $offset += $chunkLength;
+            if ($header['stream'] === 2) {
+                $stderr .= $chunk;
+            } else {
+                $stdout .= $chunk;
+            }
+        }
+        if ($offset === 0) {
+            return [$stream, ''];
+        }
+        return [$stdout, $stderr];
     }
 }

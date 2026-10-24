@@ -21,10 +21,10 @@ final class ContainerToolsCommand
 
         $action = array_shift($arguments) ?? '';
         $result = match ($action) {
-            'podman' => $arguments !== [] ? $this->manager->run($arguments) : null,
             'image-pull' => count($arguments) === 1 ? $this->manager->pull($arguments[0]) : null,
             'create' => $this->create($arguments),
             'start' => count($arguments) === 1 ? $this->manager->start($arguments[0]) : null,
+            'stop' => count($arguments) === 1 ? $this->manager->stop($arguments[0]) : null,
             'status' => count($arguments) === 1 ? $this->manager->status($arguments[0]) : null,
             'wait-ready' => $this->ready($arguments),
             'exec' => $this->execute($arguments),
@@ -44,7 +44,7 @@ final class ContainerToolsCommand
 
     private static function usage(): string
     {
-        return "usage: container-tools [--connection NAME] podman PODMAN_ARGS... | image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | status NAME | wait-ready NAME -- PROBE... | exec [--input] NAME -- COMMAND... | destroy NAME\n";
+        return "usage: container-tools [--container-connection NAME] image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
     }
 
     private function create(array $arguments): ?CommandResult
@@ -80,10 +80,6 @@ final class ContainerToolsCommand
                 return null;
             }
         }
-        if ($command === [] && $image === ContainerDefinition::DEFAULT_IMAGE) {
-            $command = ['sh', '-c', 'while :; do sleep 3600; done'];
-        }
-
         $created = $this->manager->create(new ContainerDefinition($name, $image, $labels, $memory, $command, $hostname));
         if (!$created->succeeded() || !$start) {
             return $created;
@@ -94,6 +90,10 @@ final class ContainerToolsCommand
             return new CommandResult(1, $created->stdout, $created->stderr . "Podman did not return a container name or ID\n", $created->data);
         }
         $started = $this->manager->start($target);
+        $startedContainer = $started->data['container'] ?? $container;
+        $summary = !$started->succeeded()
+            ? 'Container created but failed to start'
+            : (($startedContainer['status'] ?? null) === 'running' ? 'Container created and started' : 'Container created; image command exited');
 
         return new CommandResult(
             $started->status,
@@ -101,8 +101,8 @@ final class ContainerToolsCommand
             $created->stderr . $started->stderr,
             [
                 ...$created->data,
-                'summary' => $started->succeeded() ? 'Container created and started' : 'Container created but failed to start',
-                'container' => $started->data['container'] ?? $container,
+                'summary' => $summary,
+                'container' => $startedContainer,
             ],
         );
     }
@@ -123,14 +123,10 @@ final class ContainerToolsCommand
         if ($name === null) {
             return null;
         }
-        $input = ($arguments[0] ?? '') === '--input';
-        $input && array_shift($arguments);
         if (array_shift($arguments) !== '--' || $arguments === []) {
             return null;
         }
-        $contents = $input ? stream_get_contents(STDIN) : null;
-
-        return $this->manager->exec($name, $arguments, $contents === false ? null : $contents);
+        return $this->manager->exec($name, $arguments);
     }
 
     private function render(CommandResult $result): string

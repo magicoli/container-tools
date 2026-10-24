@@ -2,7 +2,7 @@
 
 A small PHP library for Podman container lifecycle operations, with a command adapter for shell callers.
 
-The first milestone covers image availability, container creation and startup, state inspection, readiness probes, command execution, and destruction. It does not install or configure applications inside containers.
+The first milestone covers image availability, container creation and startup, state inspection, readiness probes, command execution, stopping, and destruction. Container operations use Podman's official Docker-compatible REST API; Guzzle handles HTTP and cURL handles the Unix socket transport. Podman's configured SSH connection is used only to establish an SSH tunnel to its API socket.
 
 The public API is under `Magicoli\ContainerTools\Container`: `ContainerManagerInterface` defines the driver contract, `ContainerDefinition` describes a container, and `Container\Driver\Podman` implements the contract. The command in `bin/` is a thin shell-facing adapter over that API.
 
@@ -10,30 +10,32 @@ Each operation returns a `CommandResult` with `status`, `stdout`, `stderr`, and 
 
 ## Quick start
 
-The image and name are optional. The default image is Alpine 3.24; with that image and no command, the tool keeps a shell alive so the container is useful after creation. The CLI starts containers by default:
+The image and name are optional. The default image is Alpine 3.24. The CLI starts the container and leaves the image's configured command untouched. To run a server, use an image whose default command starts that service in the foreground. For example, Nginx remains active while its server process runs:
 
 ```bash
-./bin/container-tools create --name example
+./bin/container-tools image-pull docker.io/library/nginx:alpine
+./bin/container-tools create --name example --image docker.io/library/nginx:alpine
 ./bin/container-tools status example
+./bin/container-tools wait-ready example -- wget -q -O /dev/null http://127.0.0.1/
+./bin/container-tools stop example
 ./bin/container-tools destroy example
 ```
 
 Podman assigns a readable random name if `--name` is omitted; the result includes that final name and both full and short IDs. When a name is provided, the container's hostname defaults to that name. `--hostname HOSTNAME` overrides it. For an automatically assigned name, Podman chooses its hostname at creation time, so the hostname may be the container ID rather than the friendly name.
 
-Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. Use `--no-start` only when a stopped container is specifically needed. `--` separates this tool's options from the command to run inside the container:
+Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. Use `--no-start` only when a stopped container is specifically needed. `--` separates this tool's options from the command to run inside the container. The `CommandResult` includes the full REST inspection document under `data.container.api`, including the image's actual command and entrypoint.
 
 ```bash
-./bin/container-tools create --name example --image docker.io/library/alpine:3.24 -- sh -c 'while :; do sleep 3600; done'
+./bin/container-tools create --name example --image docker.io/library/nginx:alpine
 ```
 
 ## Commands
 
 - `status NAME` reports Podman's lifecycle state (`created`, `running`, `exited`, and so on).
 - `wait-ready NAME -- PROBE...` runs the probe repeatedly until it succeeds or times out. A running container is not necessarily ready to serve requests, so this is useful when a service needs startup time.
-- `start NAME` starts an existing stopped container.
+- `start NAME` starts an existing stopped container; `stop NAME` stops a running container.
 - `destroy NAME` removes a container, stopping it first if needed.
-- `image-pull IMAGE` downloads an image explicitly. Creating a container also uses Podman's normal image pull behavior.
-- `podman PODMAN_ARGS...` passes every remaining argument directly to Podman. Use it for Podman features not represented by the portable lifecycle methods, for example `./bin/container-tools podman ps --all` or `./bin/container-tools podman run --rm alpine:3.24 uname -a`.
+- `image-pull IMAGE` downloads an image explicitly before creation.
 
 ## PHP
 
@@ -43,20 +45,19 @@ The library keeps the lifecycle operations explicit so PHP callers can decide wh
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\Driver\Podman;
 
-$podman = new Podman(connection: getenv('CONTAINER_CONNECTION') ?: null);
-$podman->create(new ContainerDefinition(name: 'example', command: [
-    'sh', '-c', 'while :; do sleep 3600; done',
-]));
+$podman = new Podman(); // Honors CONTAINER_HOST or Podman's CONTAINER_CONNECTION.
+$podman->pull('docker.io/library/nginx:alpine');
+$podman->create(new ContainerDefinition(name: 'example', image: 'docker.io/library/nginx:alpine'));
 $podman->start('example');
-$podman->waitUntilReady('example', ['sh', '-c', 'test -r /etc/os-release']);
-
-// Native Podman features remain available through the same adapter.
-$containers = $podman->run(['ps', '--all']);
+$podman->waitUntilReady('example', ['wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/']);
+$podman->exec('example', ['php', '--version']);
+$podman->stop('example');
+$podman->destroy('example');
 ```
 
 ## Bash
 
-`bin/container-tools` is a Bash wrapper around the PSR-4 command in `src/Console`. `--connection NAME` selects a configured Podman connection; otherwise the standard Podman `CONTAINER_CONNECTION` setting is inherited. `PODMAN_BINARY` can select a non-default Podman executable.
+`bin/container-tools` is a Bash wrapper around the PSR-4 command in `src/Console`. `--container-connection NAME` selects a configured Podman connection; otherwise the standard Podman `CONTAINER_CONNECTION` setting is inherited. `CONTAINER_HOST` can point directly to a Unix socket or HTTP endpoint.
 
 ## Alpine and OpenSim
 
@@ -64,4 +65,4 @@ Alpine is suitable as a lightweight generic test image, but it is not yet a supp
 
 ## Tests
 
-`composer test` runs unit tests and real Podman integration tests. Podman and PHP are required; integration tests create uniquely named containers and remove them afterward. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--connection NAME` to select a configured Podman connection, and set `PODMAN_TEST_IMAGE` to override the integration image.
+`composer test` runs unit tests and real Podman integration tests. Podman and PHP with cURL are required; integration tests create uniquely named containers and remove them afterward. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--container-connection NAME` to select a configured Podman connection, and set `PODMAN_TEST_IMAGE` to override the integration image.

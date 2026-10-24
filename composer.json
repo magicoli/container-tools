@@ -10,7 +10,9 @@
         }
     ],
     "require": {
-        "php": ">=8.2"
+        "php": ">=8.2",
+        "ext-curl": "*",
+        "guzzlehttp/guzzle": "^7.9"
     },
     "require-dev": {
         "pestphp/pest": "^3.0"

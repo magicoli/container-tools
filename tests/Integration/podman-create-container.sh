@@ -5,17 +5,16 @@ cli=$1
 name=$2
 image=$3
 connection=${4:-}
-cli_args=()
 if [[ -n "$connection" ]]; then
-	cli_args=(--connection "$connection")
+	export CONTAINER_CONNECTION=$connection
 fi
 
 cleanup() {
-	"$cli" "${cli_args[@]}" destroy "$name" >/dev/null 2>&1 || true
+	"$cli" destroy "$name" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-"$cli" "${cli_args[@]}" image-pull "$image"
-"$cli" "${cli_args[@]}" create --name "$name" --image "$image" --label 'test.caller=bash' -- sh -c 'while :; do sleep 3600; done'
-"$cli" "${cli_args[@]}" wait-ready "$name" -- sh -c 'test -r /etc/os-release'
-"$cli" "${cli_args[@]}" status "$name"
+"$cli" image-pull "$image"
+"$cli" create --name "$name" --image "$image" --label 'test.caller=bash'
+"$cli" wait-ready "$name" -- wget -q -O /dev/null http://127.0.0.1/
+"$cli" status "$name"

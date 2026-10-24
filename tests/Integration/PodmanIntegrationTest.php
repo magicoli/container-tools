@@ -5,7 +5,7 @@ use Magicoli\ContainerTools\Container\Driver\Podman;
 
 function integration_podman(): Podman
 {
-    return new Podman(getenv('PODMAN_BINARY') ?: 'podman', getenv('CONTAINER_CONNECTION') ?: null);
+    return new Podman();
 }
 
 function integration_name(string $caller): string
@@ -17,7 +17,7 @@ function integration_name(string $caller): string
 
 function integration_image(): string
 {
-    return getenv('PODMAN_TEST_IMAGE') ?: getenv('CONTAINER_IMAGE') ?: ContainerDefinition::DEFAULT_IMAGE;
+    return getenv('PODMAN_TEST_IMAGE') ?: getenv('CONTAINER_IMAGE') ?: 'docker.io/library/nginx:alpine';
 }
 
 describe('Podman integration', function () {
@@ -29,18 +29,21 @@ describe('Podman integration', function () {
         try {
             $pulled = $podman->pull(integration_image());
             expect($pulled->status)->toBe(0, $pulled->stderr);
-            $result = $podman->create(new ContainerDefinition($name, integration_image(), ['test.caller' => 'php'], null, [
-                'sh', '-c', 'while :; do sleep 3600; done',
-            ]));
+            // Keep the image's default foreground server command, as a server
+            // container should live for as long as its service process does.
+            $result = $podman->create(new ContainerDefinition($name, integration_image(), ['test.caller' => 'php']));
             expect($result->status)->toBe(0, $result->stderr);
             expect($result->data['container']['name'])->toBe($name);
             expect($result->data['container']['id'])->toHaveLength(64);
             expect($result->data['container']['image'])->toBe(integration_image());
             $created = true;
             expect($podman->start($name)->status)->toBe(0);
-            expect($podman->waitUntilReady($name, ['sh', '-c', 'test -r /etc/os-release'])->status)->toBe(0);
+            expect($podman->waitUntilReady($name, ['wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/'])->status)->toBe(0);
             expect(trim($podman->status($name)->stdout))->toBe('running');
             expect(trim($podman->exec($name, ['hostname'])->stdout))->toBe($name);
+            expect($podman->stop($name)->status)->toBe(0);
+            expect(trim($podman->status($name)->stdout))->toBe('exited');
+            expect($podman->start($name)->status)->toBe(0);
         } finally {
             if ($created) {
                 $podman->destroy($name);
