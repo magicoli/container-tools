@@ -21,6 +21,8 @@ final readonly class ContainerDefinition
         public bool $tty = true,
         public array $portForwards = [],
         public ?NetworkAttachment $network = null,
+        public bool $publishExposedPorts = true,
+        public bool $pastaAutoPublish = false,
     ) {
         if ($name === '') {
             throw new InvalidArgumentException('A container name cannot be empty.');

@@ -120,7 +120,9 @@ Options:
       --memory SIZE     Memory limit
       --label KEY=VALUE Add a label (repeatable)
       --publish MAPPING Publish one or more host ports (repeatable)
-      --network NAME    Attach directly to a named network
+      --no-publish-defaults Do not publish ports declared by the image
+      --network MODE    Use pasta or attach to a named network
+      --pasta-auto-publish Automatically forward listening ports in both directions (pasta mode)
       --ip4 ADDRESS     Request a fixed IPv4 address on that network
       --ip6 ADDRESS     Request a fixed IPv6 address on that network
       --no-start        Create the container without starting it
@@ -314,6 +316,8 @@ HELP . "\n";
         $portForwards = [];
         $networkName = $ipv4 = $ipv6 = null;
         $start = true;
+        $publishExposedPorts = true;
+        $pastaAutoPublish = false;
         $command = [];
         while ($arguments !== []) {
             $option = array_shift($arguments);
@@ -323,6 +327,14 @@ HELP . "\n";
             }
             if ($option === '--no-start') {
                 $start = false;
+                continue;
+            }
+            if ($option === '--no-publish-defaults') {
+                $publishExposedPorts = false;
+                continue;
+            }
+            if ($option === '--pasta-auto-publish') {
+                $pastaAutoPublish = true;
                 continue;
             }
             $parts = explode('=', $option, 2);
@@ -350,8 +362,11 @@ HELP . "\n";
         if (($ipv4 !== null || $ipv6 !== null) && $networkName === null) {
             return null;
         }
+        if ($pastaAutoPublish && $networkName === null) {
+            $networkName = 'pasta';
+        }
         $network = $networkName === null ? null : new NetworkAttachment($networkName, $ipv4, $ipv6);
-        $created = $this->manager->create(new ContainerDefinition($name, $image, $labels, $memory, $command, $hostname, portForwards: $portForwards, network: $network));
+        $created = $this->manager->create(new ContainerDefinition($name, $image, $labels, $memory, $command, $hostname, portForwards: $portForwards, network: $network, publishExposedPorts: $publishExposedPorts, pastaAutoPublish: $pastaAutoPublish));
         if (!$created->succeeded() || !$start) {
             return $created;
         }
@@ -532,6 +547,20 @@ HELP . "\n";
             if (array_key_exists($key, $result->data) && $result->data[$key] !== null) {
                 $lines[] = "$label: " . (is_bool($result->data[$key]) ? ($result->data[$key] ? 'yes' : 'no') : (string) $result->data[$key]);
             }
+        }
+        if (isset($result->data['default_ports']) && $result->data['default_ports'] !== []) {
+            $lines[] = 'Image ports: ' . implode(', ', $result->data['default_ports']);
+        }
+        if (isset($result->data['published_ports_requested']) && is_array($result->data['published_ports_requested'])) {
+            foreach ($result->data['published_ports_requested'] as $port) {
+                $host = ($port['host_ip'] ?? null) ? $port['host_ip'] . ':' : 'host:';
+                $target = $port['container'] ?? '?';
+                $hostPort = ($port['host_port'] ?? null) ?: 'auto';
+                $lines[] = "Port mapping requested: $host$hostPort -> $target";
+            }
+        }
+        if (($result->data['pasta_auto_publish_requested'] ?? false) && !($result->data['pasta_auto_publish_active'] ?? false)) {
+            $lines[] = 'Port access: selected network uses explicit/image mappings and its container address; pasta auto-forward is inactive';
         }
         if (($result->data['operation'] ?? '') !== 'network-create' && isset($result->data['requested']) && is_array($result->data['requested'])) {
             foreach ($result->data['requested'] as $key => $value) {

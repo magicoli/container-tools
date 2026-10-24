@@ -37,11 +37,20 @@ function container_inspection(string $status = 'created'): Response
     ], JSON_THROW_ON_ERROR));
 }
 
+function image_inspection(array $ports = [], string $id = 'sha256:image-id'): Response
+{
+    return new Response(200, [], json_encode([
+        'Id' => $id,
+        'Config' => ['ExposedPorts' => (object) array_fill_keys($ports, new stdClass())],
+    ], JSON_THROW_ON_ERROR));
+}
+
 test('container creation uses the compatible REST endpoint and returns API inspection details', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
-        new Response(200, [], '{"Id":"image-id"}'),
+        image_inspection(),
+        image_inspection(),
         new Response(201, [], json_encode(['Id' => str_repeat('a', 64)], JSON_THROW_ON_ERROR)),
         container_inspection(),
     ], $history);
@@ -51,8 +60,8 @@ test('container creation uses the compatible REST endpoint and returns API inspe
     expect($result->status)->toBe(0);
     expect($result->data['container'])->toMatchArray(['id' => str_repeat('a', 64), 'name' => 'sample', 'image' => 'alpine:3.24', 'hostname' => 'sample', 'status' => 'created']);
     expect($result->data['container']['api']['Config']['Cmd'])->toBe(['php-fpm', '-F']);
-    expect((string) $history[2]['request']->getUri())->toContain('/v1.41/containers/create?name=sample');
-    $body = json_decode((string) $history[2]['request']->getBody(), true);
+    expect((string) $history[3]['request']->getUri())->toContain('/v1.41/containers/create?name=sample');
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
     expect($body)->toMatchArray([
         'Image' => 'alpine:3.24',
         'Hostname' => 'sample',
@@ -68,7 +77,8 @@ test('build uploads a Containerfile context to Podman and applies build options'
     $history = [];
     $podman = podman_api([
         api_version(),
-        new Response(200, [], "{\"stream\":\"Successfully tagged localhost/test-image:latest\\n\"}\n"),
+        new Response(404, [], '{"message":"no such image"}'),
+        new Response(200, [], "{\"stream\":\"STEP 1/1: FROM alpine\\n\"}\n{\"aux\":{\"ID\":\"sha256:image-id\"}}\n"),
     ], $history);
     $context = dirname(__DIR__, 2) . '/examples/caddy';
 
@@ -83,20 +93,46 @@ test('build uploads a Containerfile context to Podman and applies build options'
     expect($result->status)->toBe(0);
     expect($result->data)->toMatchArray([
         'operation' => 'build',
-        'summary' => 'Image built',
+        'summary' => 'New image built without cache',
         'image' => 'localhost/test-image:latest',
         'from' => 'docker.io/library/debian:12-slim',
         'no_cache' => true,
     ]);
-    expect((string) $history[1]['request']->getUri())->toContain('/v1.41/build?');
-    parse_str((string) $history[1]['request']->getUri()->getQuery(), $query);
+    expect((string) $history[2]['request']->getUri())->toContain('/v1.41/build?');
+    parse_str((string) $history[2]['request']->getUri()->getQuery(), $query);
     expect($query)->toMatchArray([
         'dockerfile' => 'alpine/Containerfile',
         't' => 'localhost/test-image:latest',
         'from' => 'docker.io/library/debian:12-slim',
         'nocache' => 'true',
     ]);
-    expect($history[1]['request']->getHeaderLine('Content-Type'))->toBe('application/x-tar');
+    expect($history[2]['request']->getHeaderLine('Content-Type'))->toBe('application/x-tar');
+});
+
+test('build reports an existing image whose layers and resulting ID were unchanged', function () {
+    $context = dirname(__DIR__, 2) . '/examples/caddy';
+    $podman = podman_api([
+        api_version(),
+        image_inspection([], 'sha256:same-id'),
+        new Response(200, [], "{\"stream\":\"STEP 1/1: FROM alpine\\n\"}\n{\"stream\":\"--> Using cache same-id\\n\"}\n{\"aux\":{\"ID\":\"sha256:same-id\"}}\n"),
+    ]);
+
+    $result = $podman->build(new ImageBuildDefinition($context . '/alpine/Containerfile', 'localhost/existing:latest', $context));
+
+    expect($result->data['summary'])->toBe('Image unchanged (1/1 build steps reused from cache)');
+});
+
+test('build distinguishes rebuilding an existing tag without cache', function () {
+    $context = dirname(__DIR__, 2) . '/examples/caddy';
+    $podman = podman_api([
+        api_version(),
+        image_inspection([], 'sha256:old-id'),
+        new Response(200, [], "{\"stream\":\"STEP 1/1: FROM alpine\\n\"}\n{\"aux\":{\"ID\":\"sha256:new-id\"}}\n"),
+    ]);
+
+    $result = $podman->build(new ImageBuildDefinition($context . '/alpine/Containerfile', 'localhost/existing:latest', $context, noCache: true));
+
+    expect($result->data['summary'])->toBe('Existing image rebuilt without cache');
 });
 
 test('build refuses a Containerfile outside its context', function () {
@@ -111,6 +147,7 @@ test('build refuses a Containerfile outside its context', function () {
 test('build treats an error in the build event stream as a failure', function () {
     $podman = podman_api([
         api_version(),
+        new Response(404, [], '{"message":"no such image"}'),
         new Response(200, [], "{\"stream\":\"Step 1/1\\n\"}\n{\"errorDetail\":{\"message\":\"package install failed\"},\"error\":\"package install failed\"}\n"),
     ]);
     $context = dirname(__DIR__, 2) . '/examples/caddy';
@@ -126,13 +163,14 @@ test('container creation leaves the image command unchanged when no command was 
     $history = [];
     $podman = podman_api([
         api_version(),
-        new Response(200, [], '{"Id":"image-id"}'),
+        image_inspection(),
+        image_inspection(),
         new Response(201, [], json_encode(['Id' => str_repeat('a', 64)], JSON_THROW_ON_ERROR)),
         container_inspection(),
     ], $history);
 
     expect($podman->create(new ContainerDefinition('sample', 'alpine:3.24'))->status)->toBe(0);
-    $body = json_decode((string) $history[2]['request']->getBody(), true);
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
     expect($body)->not->toHaveKey('Cmd');
     expect($body)->not->toHaveKey('Entrypoint');
     expect($body)->toMatchArray(['OpenStdin' => true, 'Tty' => true]);
@@ -144,6 +182,7 @@ test('container creation pulls an image that is not available yet', function () 
         api_version(),
         new Response(404, [], '{"message":"no such image"}'),
         new Response(200, [], "{\"status\":\"Pulling from library/debian\"}\n{\"status\":\"Download complete\"}\n"),
+        image_inspection(),
         new Response(201, [], json_encode(['Id' => str_repeat('b', 64)], JSON_THROW_ON_ERROR)),
         new Response(200, [], json_encode([
             'Id' => str_repeat('b', 64),
@@ -158,7 +197,7 @@ test('container creation pulls an image that is not available yet', function () 
     expect($result->status)->toBe(0);
     expect($result->data['image_pulled'])->toBeTrue();
     expect((string) $history[2]['request']->getUri())->toContain('/images/create?fromImage=docker.io%2Flibrary%2Fdebian%3A12-slim');
-    $body = json_decode((string) $history[3]['request']->getBody(), true);
+    $body = json_decode((string) $history[4]['request']->getBody(), true);
     expect($body)->toBe(['Image' => 'docker.io/library/debian:12-slim', 'OpenStdin' => true, 'Tty' => true, 'Hostname' => 'sample']);
 });
 
@@ -242,7 +281,8 @@ test('container creation attaches requested static IPv4 and IPv6 addresses', fun
     $podman = podman_api([
         api_version(),
         new Response(200, [], '{"Name":"lan-static","Driver":"macvlan"}'),
-        new Response(200, [], '{"Id":"image-id"}'),
+        image_inspection(),
+        image_inspection(),
         new Response(201, [], json_encode(['Id' => str_repeat('c', 64)], JSON_THROW_ON_ERROR)),
         new Response(200, [], json_encode([
             'Id' => str_repeat('c', 64), 'Name' => '/fixed-node',
@@ -258,7 +298,7 @@ test('container creation attaches requested static IPv4 and IPv6 addresses', fun
 
     expect($result->status)->toBe(0);
     expect($result->data['container']['networks']['lan-static'])->toMatchArray(['ipv4' => '192.0.2.22', 'ipv6' => '2001:db8:1::22']);
-    $body = json_decode((string) $history[3]['request']->getBody(), true);
+    $body = json_decode((string) $history[4]['request']->getBody(), true);
     expect($body['HostConfig']['NetworkMode'])->toBe('lan-static');
     expect($body['NetworkingConfig']['EndpointsConfig']['lan-static']['IPAMConfig'])->toBe([
         'IPv4Address' => '192.0.2.22', 'IPv6Address' => '2001:db8:1::22',
@@ -269,7 +309,8 @@ test('published ports include host mapping details in the container result', fun
     $history = [];
     $podman = podman_api([
         api_version(),
-        new Response(200, [], '{"Id":"image-id"}'),
+        image_inspection(),
+        image_inspection(['80/tcp']),
         new Response(201, [], json_encode(['Id' => str_repeat('d', 64)], JSON_THROW_ON_ERROR)),
         new Response(200, [], json_encode([
             'Id' => str_repeat('d', 64), 'Name' => '/web',
@@ -279,20 +320,128 @@ test('published ports include host mapping details in the container result', fun
     ], $history);
 
     $podman->create(new ContainerDefinition('web', 'nginx:alpine', portForwards: [new PortForward(8080, 80, hostIp: '127.0.0.1')]));
-    $body = json_decode((string) $history[2]['request']->getBody(), true);
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
     expect($body['HostConfig']['PortBindings']['80/tcp'])->toBe([['HostIp' => '127.0.0.1', 'HostPort' => '8080']]);
 });
 
-test('container creation rejects published ports on macvlan and ipvlan networks', function () {
+test('image EXPOSE ports are published automatically and explicit mappings override matching defaults', function () {
+    $history = [];
     $podman = podman_api([
-        api_version(), new Response(200, [], '{"Name":"lan","Driver":"macvlan"}'),
+        api_version(),
+        image_inspection(),
+        image_inspection(['22/tcp', '80/tcp', '443/tcp']),
+        new Response(201, [], json_encode(['Id' => str_repeat('e', 64)], JSON_THROW_ON_ERROR)),
+        container_inspection(),
+    ], $history);
+
+    $podman->create(new ContainerDefinition('caddy', 'localhost/caddy:latest', portForwards: [
+        new PortForward(8022, 22), new PortForward(8080, 80), new PortForward(8443, 443), new PortForward(9000, 9000),
+    ]));
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
+
+    expect($body['HostConfig']['PortBindings'])->toBe([
+        '22/tcp' => [['HostPort' => '8022']],
+        '80/tcp' => [['HostPort' => '8080']],
+        '443/tcp' => [['HostPort' => '8443']],
+        '9000/tcp' => [['HostPort' => '9000']],
     ]);
+});
+
+test('an explicit host port replaces the image default for the same container port', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(), image_inspection(), image_inspection(['8000/tcp']),
+        new Response(201, [], json_encode(['Id' => str_repeat('f', 64)], JSON_THROW_ON_ERROR)),
+        container_inspection(),
+    ], $history);
+
+    $podman->create(new ContainerDefinition('web', 'localhost/web:latest', portForwards: [new PortForward(8001, 8000)]));
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
+
+    expect($body['HostConfig']['PortBindings'])->toBe(['8000/tcp' => [['HostPort' => '8001']]]);
+});
+
+test('an explicit port adds to image default mappings for a different container port', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(), image_inspection(), image_inspection(['8000/tcp']),
+        new Response(201, [], json_encode(['Id' => str_repeat('f', 64)], JSON_THROW_ON_ERROR)),
+        container_inspection(),
+    ], $history);
+
+    $podman->create(new ContainerDefinition('web', 'localhost/web:latest', portForwards: [new PortForward(8001, 8001)]));
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
+
+    expect($body['HostConfig']['PortBindings'])->toBe([
+        '8000/tcp' => [[]],
+        '8001/tcp' => [['HostPort' => '8001']],
+    ]);
+});
+
+test('pasta automatic publishing is configured as a runtime network mode', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(), image_inspection(), image_inspection(['8080/tcp']),
+        new Response(201, [], json_encode(['Id' => str_repeat('f', 64)], JSON_THROW_ON_ERROR)),
+        container_inspection(),
+    ], $history);
+
+    $podman->create(new ContainerDefinition('web', 'localhost/web:latest', pastaAutoPublish: true));
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
+
+    expect($body['HostConfig']['NetworkMode'])->toBe('pasta:-t,auto,-u,auto,-T,auto,-U,auto');
+    expect($body['HostConfig'])->not->toHaveKey('PortBindings');
+});
+
+test('pasta automatic publishing retains explicit host-to-container mappings', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(), image_inspection(), image_inspection(['80/tcp']),
+        new Response(201, [], json_encode(['Id' => str_repeat('f', 64)], JSON_THROW_ON_ERROR)),
+        container_inspection(),
+    ], $history);
+
+    $podman->create(new ContainerDefinition('web', 'localhost/web:latest', portForwards: [new PortForward(8080, 80)], pastaAutoPublish: true));
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
+
+    expect($body['HostConfig']['NetworkMode'])->toBe('pasta:-t,auto,-u,auto,-T,auto,-U,auto');
+    expect($body['HostConfig']['PortBindings'])->toBe(['80/tcp' => [['HostPort' => '8080']]]);
+});
+
+test('direct networks can coexist with published ports through an additional bridge attachment', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(),
+        new Response(200, [], '{"Name":"lan","Driver":"macvlan"}'),
+        image_inspection(),
+        image_inspection(['80/tcp']),
+        new Response(201, [], json_encode(['Id' => str_repeat('b', 64)], JSON_THROW_ON_ERROR)),
+        new Response(200, [], '{}'),
+        new Response(200, [], json_encode([
+            'Id' => str_repeat('b', 64), 'Name' => '/web',
+            'Config' => ['Hostname' => 'web', 'Image' => 'nginx:alpine'], 'State' => ['Status' => 'created'],
+            'NetworkSettings' => ['Networks' => ['lan' => ['IPAddress' => '192.0.2.22', 'GlobalIPv6Address' => '2001:db8::22']]],
+        ], JSON_THROW_ON_ERROR)),
+    ], $history);
     $result = $podman->create(new ContainerDefinition(
-        image: 'alpine:3.24', portForwards: [new PortForward(8080, 80)], network: new NetworkAttachment('lan'),
+        name: 'web', image: 'nginx:alpine', portForwards: [new PortForward(8080, 80)],
+        network: new NetworkAttachment('lan', '192.0.2.22', '2001:db8::22'),
+        pastaAutoPublish: true,
     ));
 
-    expect($result->status)->toBe(2);
-    expect($result->stderr)->toContain('not supported with macvlan');
+    expect($result->status)->toBe(0);
+    expect($result->data['pasta_auto_publish_requested'])->toBeTrue();
+    expect($result->data['pasta_auto_publish_active'])->toBeFalse();
+    $create = json_decode((string) $history[4]['request']->getBody(), true);
+    expect($create['HostConfig'])->toMatchArray([
+        'NetworkMode' => 'bridge',
+        'PortBindings' => ['80/tcp' => [['HostPort' => '8080']]],
+    ]);
+    expect((string) $history[5]['request']->getUri())->toContain('/networks/lan/connect');
+    expect(json_decode((string) $history[5]['request']->getBody(), true))->toBe([
+        'Container' => str_repeat('b', 64),
+        'EndpointConfig' => ['IPAMConfig' => ['IPv4Address' => '192.0.2.22', 'IPv6Address' => '2001:db8::22']],
+    ]);
 });
 
 test('port mapping parser accepts fixed and automatic host ports', function () {

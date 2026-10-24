@@ -45,13 +45,15 @@ Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. 
 
 ## Container networking
 
-Choose between ordinary host-port publishing and a direct address on a network. A container cannot combine published ports with `macvlan` or `ipvlan`; those drivers do not implement port forwarding.
+Choose host-port publishing, automatic `pasta` forwarding, or a direct address on a network. The library can combine explicit host-port mappings with a `macvlan` or `ipvlan` address by attaching the container to both its direct network and a bridge network for the published ports.
 
 `IPAM` means IP address management: it selects how addresses are assigned to a Podman network. `host-local` assigns addresses from the configured subnet, `dhcp` asks a DHCP server, and `none` leaves address assignment to another mechanism.
 
 ### Host port forwarding
 
-Publish a container service on a host port. The host and container ports can differ, or Podman can choose an unused host port:
+The library reads the image's `EXPOSE` metadata and publishes those ports on automatically selected host ports by default. Podman chooses free ports, so multiple instances can run together without fighting over host ports. An explicit `--publish` mapping for an exposed container port replaces that default; a mapping for a different port is added alongside it. Use `--no-publish-defaults` to turn off the automatic mappings.
+
+Publish a container service on a specific host port. The host and container ports can differ, or Podman can choose an unused host port:
 
 ```bash
 ./bin/container-tools create --name web --image docker.io/library/nginx:alpine --publish 8080:80
@@ -73,6 +75,15 @@ Ranges are expanded into individual mappings. A range without a colon uses the s
 ./bin/container-tools create --name random-ports --image docker.io/library/alpine:3.24 \
   --publish=:8002-8100
 ```
+
+Use `--pasta-auto-publish` for rootless Podman to forward listening ports dynamically in either direction. This is a create-time network setting; `EXPOSE` remains image metadata and is declared in the Containerfile. A later listener opened by a process in the container is forwarded on the same port by pasta. Explicit `--publish` mappings still work with pasta:
+
+```bash
+./bin/container-tools create --name dynamic-web --image docker.io/library/alpine:3.24 \
+  --pasta-auto-publish -- sh -c 'sleep 3600'
+```
+
+Automatic pasta forwarding requires rootless Podman. If a different named network is selected, the container keeps its normal image/explicit port mappings and network address; the result reports that pasta auto-forwarding was not active. Direct `macvlan`/`ipvlan` networks and host-port mappings can be combined: the library uses a bridge attachment for published ports and keeps the direct network address as well.
 
 ### Direct address from DHCP
 
@@ -156,7 +167,7 @@ The integration fixtures include Caddy and OpenSSH variants based on Debian 12 a
 podman exec -it debian-caddy /bin/bash
 ```
 
-The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples share the Caddyfile and entrypoint in `examples/caddy/`. Open an interactive shell in an Alpine container with `podman exec -it alpine-caddy /bin/sh`. `EXPOSE` records the ports inside the image; it does not publish ports on the host.
+The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples share the Caddyfile and entrypoint in `examples/caddy/`. Open an interactive shell in an Alpine container with `podman exec -it alpine-caddy /bin/sh`. `EXPOSE` records image port metadata; this library uses that metadata for its default automatic host mappings when creating a container.
 
 ## Tests
 

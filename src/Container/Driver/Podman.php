@@ -11,6 +11,7 @@ use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
 use Magicoli\ContainerTools\Container\NetworkDefinition;
+use Magicoli\ContainerTools\Container\PortForward;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
@@ -74,6 +75,11 @@ final class Podman implements ContainerManagerInterface
         if ($image->tag === '') {
             return new CommandResult(2, stderr: "An image tag is required for a build.\n", data: ['operation' => 'build']);
         }
+
+        $existingImage = $this->request('GET', $this->path('images/' . rawurlencode($image->tag) . '/json'));
+        $existingImageData = $existingImage->succeeded() ? json_decode($existingImage->stdout, true) : null;
+        $imageExisted = is_array($existingImageData) && isset($existingImageData['Id']);
+        $previousImageId = $imageExisted ? $existingImageData['Id'] : null;
 
         $archivePath = tempnam(sys_get_temp_dir(), 'container-tools-build-');
         if ($archivePath === false) {
@@ -139,13 +145,18 @@ final class Podman implements ContainerManagerInterface
                     'no_cache' => $image->noCache,
                 ]);
             }
-            $summary = $result->succeeded() ? 'Image built' : 'Image build failed';
+            $buildStats = $this->buildStats($result->stdout);
+            $summary = $result->succeeded()
+                ? $this->buildSummary($image, $imageExisted, $previousImageId, $buildStats)
+                : 'Image build failed';
             return new CommandResult($result->status, $result->stdout, $result->stderr, [
                 'operation' => 'build',
                 'summary' => $summary,
                 'image' => $image->tag,
                 'from' => $image->from,
                 'no_cache' => $image->noCache,
+                'image_existed' => $imageExisted,
+                ...$buildStats,
             ]);
         } catch (\Throwable $exception) {
             return new CommandResult(1, stderr: $exception->getMessage() . "\n", data: ['operation' => 'build', 'image' => $image->tag]);
@@ -209,7 +220,19 @@ final class Podman implements ContainerManagerInterface
 
     public function create(ContainerDefinition $container): CommandResult
     {
-        if ($container->network !== null) {
+        $directNetwork = false;
+        $isPastaMode = $container->network !== null && preg_match('/^pasta(?::|$)/', $container->network->name) === 1;
+        $isHostMode = $container->network?->name === 'host';
+        $pastaAutoActive = $container->pastaAutoPublish && ($container->network === null || $isPastaMode);
+        $networkIsMode = $isPastaMode || $isHostMode || ($container->pastaAutoPublish && $container->network === null);
+        if ($networkIsMode && $container->network !== null && ($container->network->ipv4 !== null || $container->network->ipv6 !== null)) {
+            return new CommandResult(2, stderr: "Static IP addresses cannot be assigned with the {$container->network->name} network mode.\n", data: [
+                'operation' => 'create',
+                'summary' => 'Container creation failed because pasta does not accept a named-network IP assignment',
+                'requested' => $this->requestedDefinition($container),
+            ]);
+        }
+        if ($container->network !== null && !$networkIsMode) {
             $network = $this->inspectNetwork($container->network->name);
             if (!$network->succeeded()) {
                 return $network->withData([
@@ -219,15 +242,7 @@ final class Podman implements ContainerManagerInterface
                 ]);
             }
             $driver = $network->data['network']['Driver'] ?? null;
-            if (in_array($driver, ['macvlan', 'ipvlan'], true) && $container->portForwards !== []) {
-                return new CommandResult(2, stderr: "Published ports are not supported with $driver networks; attach the container directly instead.\n", data: [
-                    'operation' => 'create',
-                    'summary' => 'Container creation failed because the network driver does not support port publishing',
-                    'network' => $container->network->name,
-                    'driver' => $driver,
-                    'requested' => $this->requestedDefinition($container),
-                ]);
-            }
+            $directNetwork = in_array($driver, ['macvlan', 'ipvlan'], true);
         }
         $image = $this->pull($container->image);
         if (!$image->succeeded()) {
@@ -237,6 +252,17 @@ final class Podman implements ContainerManagerInterface
                 'requested' => $this->requestedDefinition($container),
             ]);
         }
+
+        $imageInspection = $this->request('GET', $this->path('images/' . rawurlencode($container->image) . '/json'));
+        $imageData = $imageInspection->succeeded() ? json_decode($imageInspection->stdout, true) : null;
+        $exposedPorts = is_array($imageData) ? ($imageData['Config']['ExposedPorts'] ?? []) : [];
+        // pasta auto-forwarding is a runtime network mode. With any named
+        // network, including macvlan/ipvlan, use ordinary port bindings instead.
+        $portForwards = $this->effectivePortForwards(
+            $container->publishExposedPorts && !$pastaAutoActive ? $exposedPorts : [],
+            $container->portForwards,
+        );
+        $attachDirectNetworkAfterCreate = $directNetwork && $portForwards !== [];
 
         $query = $container->name === null ? '' : '?name=' . rawurlencode($container->name);
         $config = [
@@ -258,9 +284,9 @@ final class Podman implements ContainerManagerInterface
         if ($container->memory !== null && $container->memory !== '') {
             $hostConfig['Memory'] = $this->memoryBytes($container->memory);
         }
-        if ($container->portForwards !== []) {
+        if ($portForwards !== []) {
             $portBindings = [];
-            foreach ($container->portForwards as $forward) {
+            foreach ($portForwards as $forward) {
                 $binding = [];
                 if ($forward->hostIp !== null) {
                     $binding['HostIp'] = $forward->hostIp;
@@ -272,13 +298,20 @@ final class Podman implements ContainerManagerInterface
             }
             $hostConfig['PortBindings'] = $portBindings;
         }
-        if ($container->network !== null) {
+        if ($networkIsMode) {
+            $mode = $container->network?->name ?? 'pasta';
+            $hostConfig['NetworkMode'] = $pastaAutoActive
+                ? 'pasta:-t,auto,-u,auto,-T,auto,-U,auto'
+                : $mode;
+        } elseif ($attachDirectNetworkAfterCreate) {
+            $hostConfig['NetworkMode'] = 'bridge';
+        } elseif ($container->network !== null) {
             $hostConfig['NetworkMode'] = $container->network->name;
         }
         if ($hostConfig !== []) {
             $config['HostConfig'] = $hostConfig;
         }
-        if ($container->network !== null) {
+        if ($container->network !== null && !$networkIsMode && !$attachDirectNetworkAfterCreate) {
             $endpoint = [];
             $ipam = [];
             if ($container->network->ipv4 !== null) {
@@ -303,6 +336,33 @@ final class Podman implements ContainerManagerInterface
         if (!is_string($id) || $id === '') {
             return new CommandResult(1, $result->stdout, "Podman returned no container ID after creation.\n", ['operation' => 'create', 'summary' => 'Container was created but its ID was missing']);
         }
+        if ($attachDirectNetworkAfterCreate) {
+            $endpoint = [];
+            $ipam = [];
+            if ($container->network?->ipv4 !== null) {
+                $ipam['IPv4Address'] = $container->network->ipv4;
+            }
+            if ($container->network?->ipv6 !== null) {
+                $ipam['IPv6Address'] = $container->network->ipv6;
+            }
+            if ($ipam !== []) {
+                $endpoint['IPAMConfig'] = $ipam;
+            }
+            $connected = $this->request('POST', $this->path('networks/' . rawurlencode($container->network->name) . '/connect'), [
+                'Container' => $id,
+                'EndpointConfig' => (object) $endpoint,
+            ]);
+            if (!$connected->succeeded()) {
+                $this->request('DELETE', $this->path('containers/' . rawurlencode($id)) . '?force=true');
+                return $connected->withData([
+                    'operation' => 'create',
+                    'summary' => 'Container created for published ports but could not be attached to its direct network',
+                    'network' => $container->network->name,
+                    'id' => $id,
+                    'requested' => $this->requestedDefinition($container),
+                ]);
+            }
+        }
         $inspection = $this->inspect($id);
         if (!$inspection->succeeded()) {
             return $inspection->withData(['operation' => 'create', 'summary' => 'Container was created but could not be inspected', 'id' => $id]);
@@ -313,6 +373,14 @@ final class Podman implements ContainerManagerInterface
             'container' => $inspection->data['container'],
             'requested' => $this->requestedDefinition($container),
             'image_pulled' => $image->data['pulled'] ?? false,
+            'default_ports' => array_keys(is_array($exposedPorts) ? $exposedPorts : []),
+            'published_ports_requested' => array_map(static fn ($forward) => [
+                'container' => $forward->containerPort . '/' . $forward->protocol(),
+                'host_ip' => $forward->hostIp,
+                'host_port' => $forward->hostPort,
+            ], $portForwards),
+            'pasta_auto_publish_requested' => $container->pastaAutoPublish,
+            'pasta_auto_publish_active' => $pastaAutoActive,
         ]);
     }
 
@@ -445,6 +513,82 @@ final class Podman implements ContainerManagerInterface
         return null;
     }
 
+    /** @return array{build_steps: int, cached_steps: int, image_id: ?string} */
+    private function buildStats(string $output): array
+    {
+        $steps = $cached = 0;
+        $imageId = null;
+        foreach (preg_split('/\r?\n/', $output) ?: [] as $line) {
+            $record = json_decode($line, true);
+            if (!is_array($record)) {
+                continue;
+            }
+            $message = $record['stream'] ?? '';
+            if (is_string($message)) {
+                if (preg_match('/\bSTEP\s+\d+\/(\d+)\s*:/i', $message, $match)) {
+                    $steps = max($steps, (int) $match[1]);
+                }
+                if (str_contains(strtolower($message), 'using cache')) {
+                    $cached++;
+                }
+            }
+            $candidate = $record['aux']['ID'] ?? null;
+            if (is_string($candidate) && $candidate !== '') {
+                $imageId = $candidate;
+            }
+        }
+
+        return ['build_steps' => $steps, 'cached_steps' => $cached, 'image_id' => $imageId];
+    }
+
+    private function buildSummary(ImageBuildDefinition $image, bool $imageExisted, ?string $previousImageId, array $stats): string
+    {
+        $steps = $stats['build_steps'];
+        $cached = $stats['cached_steps'];
+        $allCached = $steps > 0 && $cached >= $steps;
+        $sameImage = $previousImageId !== null && $stats['image_id'] !== null && $previousImageId === $stats['image_id'];
+
+        if ($image->noCache) {
+            return $imageExisted ? 'Existing image rebuilt without cache' : 'New image built without cache';
+        }
+        if ($allCached && $imageExisted && $sameImage) {
+            return "Image unchanged ($cached/$steps build steps reused from cache)";
+        }
+        if ($allCached && !$imageExisted) {
+            return "New image tagged from cache ($cached/$steps build steps reused)";
+        }
+
+        $cacheDetail = $steps > 0 ? " ($cached/$steps build steps reused from cache)" : '';
+        return ($imageExisted ? 'Existing image rebuilt' : 'New image built') . $cacheDetail;
+    }
+
+    /**
+     * Image EXPOSE metadata is published to automatically selected host ports
+     * by default. Explicit mappings replace the automatic mapping for the same
+     * container port and protocol, while unrelated exposed ports remain.
+     *
+     * @return list<\Magicoli\ContainerTools\Container\PortForward>
+     */
+    private function effectivePortForwards(array $exposedPorts, array $requested): array
+    {
+        $forwards = [];
+        foreach (array_keys($exposedPorts) as $exposed) {
+            if (!is_string($exposed) || !preg_match('/^(\d+)\/(tcp|udp)$/i', $exposed, $match)) {
+                continue;
+            }
+            $forwards[] = new PortForward(null, (int) $match[1], strtolower($match[2]));
+        }
+
+        foreach ($requested as $forward) {
+            $forwards = array_values(array_filter($forwards, static fn ($default) =>
+                $default->containerPort !== $forward->containerPort || $default->protocol() !== $forward->protocol()
+            ));
+            $forwards[] = $forward;
+        }
+
+        return $forwards;
+    }
+
     private function negotiateApiVersion(): string
     {
         $response = null;
@@ -541,6 +685,8 @@ final class Podman implements ContainerManagerInterface
                 'ipv4' => $container->network->ipv4,
                 'ipv6' => $container->network->ipv6,
             ],
+            'publish_exposed_ports' => $container->publishExposedPorts,
+            'pasta_auto_publish' => $container->pastaAutoPublish,
         ];
     }
 
