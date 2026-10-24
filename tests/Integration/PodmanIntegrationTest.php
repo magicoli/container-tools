@@ -33,6 +33,9 @@ describe('Podman integration', function () {
                 'sh', '-c', 'while :; do sleep 3600; done',
             ]));
             expect($result->status)->toBe(0, $result->stderr);
+            expect($result->data['container']['name'])->toBe($name);
+            expect($result->data['container']['id'])->toHaveLength(64);
+            expect($result->data['container']['image'])->toBe(integration_image());
             $created = true;
             expect($podman->start($name)->status)->toBe(0);
             expect($podman->waitUntilReady($name, ['sh', '-c', 'test -r /etc/os-release'])->status)->toBe(0);
@@ -63,6 +66,7 @@ describe('Podman integration', function () {
         $status = proc_close($process);
 
         expect($status)->toBe(0, $stderr);
-        expect(trim((string) $stdout))->toEndWith('running');
+        expect((string) $stdout)->toContain('Name: ' . $name);
+        expect((string) $stdout)->toContain('Status: running');
     });
 });

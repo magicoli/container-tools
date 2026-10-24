@@ -6,6 +6,8 @@ The first milestone covers image availability, container creation and startup, s
 
 The public API is under `Magicoli\ContainerTools\Container`: `ContainerManagerInterface` defines the driver contract, `ContainerDefinition` describes a container, and `Container\Driver\Podman` implements the contract. The command in `bin/` is a thin shell-facing adapter over that API.
 
+Each operation returns a `CommandResult` with `status`, `stdout`, `stderr`, and structured `data`. For example, `create()` returns the effective container `id`, `short_id`, Podman-assigned `name`, image, hostname, and initial state, as well as the requested definition. `destroy()` includes the details collected before removal; if Podman cannot inspect the requested name or ID, it fails without deleting anything. The CLI prints these fields as a short readable summary, and returns a nonzero exit status on failure.
+
 ## Quick start
 
 The image and name are optional. The default image is Alpine 3.24; with that image and no command, the tool keeps a shell alive so the container is useful after creation. The CLI starts containers by default:
@@ -16,7 +18,7 @@ The image and name are optional. The default image is Alpine 3.24; with that ima
 ./bin/container-tools destroy example
 ```
 
-Podman assigns a readable random name if `--name` is omitted. When a name is provided, the container's hostname defaults to that name. `--hostname HOSTNAME` overrides it. Podman itself uses the container ID as the hostname when it generates the name; keeping Podman's generated name while making the hostname match it would require generating the name in this library instead.
+Podman assigns a readable random name if `--name` is omitted; the result includes that final name and both full and short IDs. When a name is provided, the container's hostname defaults to that name. `--hostname HOSTNAME` overrides it. For an automatically assigned name, Podman chooses its hostname at creation time, so the hostname may be the container ID rather than the friendly name.
 
 Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. Use `--no-start` only when a stopped container is specifically needed. `--` separates this tool's options from the command to run inside the container:
 
@@ -31,6 +33,7 @@ Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. 
 - `start NAME` starts an existing stopped container.
 - `destroy NAME` removes a container, stopping it first if needed.
 - `image-pull IMAGE` downloads an image explicitly. Creating a container also uses Podman's normal image pull behavior.
+- `podman PODMAN_ARGS...` passes every remaining argument directly to Podman. Use it for Podman features not represented by the portable lifecycle methods, for example `./bin/container-tools podman ps --all` or `./bin/container-tools podman run --rm alpine:3.24 uname -a`.
 
 ## PHP
 
@@ -46,6 +49,9 @@ $podman->create(new ContainerDefinition(name: 'example', command: [
 ]));
 $podman->start('example');
 $podman->waitUntilReady('example', ['sh', '-c', 'test -r /etc/os-release']);
+
+// Native Podman features remain available through the same adapter.
+$containers = $podman->run(['ps', '--all']);
 ```
 
 ## Bash

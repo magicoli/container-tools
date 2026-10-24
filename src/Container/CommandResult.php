@@ -10,10 +10,16 @@ final readonly class CommandResult
         public int $status,
         public string $stdout = '',
         public string $stderr = '',
+        public array $data = [],
     ) {}
 
     public function succeeded(): bool
     {
         return $this->status === 0;
+    }
+
+    public function withData(array $data): self
+    {
+        return new self($this->status, $this->stdout, $this->stderr, [...$this->data, ...$data]);
     }
 }

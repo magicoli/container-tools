@@ -16,10 +16,6 @@ cleanup() {
 trap cleanup EXIT
 
 "$cli" "${cli_args[@]}" image-pull "$image"
-if [[ "$image" == 'docker.io/library/alpine:3.24' && -z "${CONTAINER_IMAGE:-}" ]]; then
-	"$cli" "${cli_args[@]}" create --name "$name" --label 'test.caller=bash'
-else
-	"$cli" "${cli_args[@]}" create --name "$name" --image "$image" --label 'test.caller=bash' -- sh -c 'while :; do sleep 3600; done'
-fi
+"$cli" "${cli_args[@]}" create --name "$name" --image "$image" --label 'test.caller=bash' -- sh -c 'while :; do sleep 3600; done'
 "$cli" "${cli_args[@]}" wait-ready "$name" -- sh -c 'test -r /etc/os-release'
 "$cli" "${cli_args[@]}" status "$name"

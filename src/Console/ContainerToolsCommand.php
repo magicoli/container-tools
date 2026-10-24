@@ -21,6 +21,7 @@ final class ContainerToolsCommand
 
         $action = array_shift($arguments) ?? '';
         $result = match ($action) {
+            'podman' => $arguments !== [] ? $this->manager->run($arguments) : null,
             'image-pull' => count($arguments) === 1 ? $this->manager->pull($arguments[0]) : null,
             'create' => $this->create($arguments),
             'start' => count($arguments) === 1 ? $this->manager->start($arguments[0]) : null,
@@ -35,7 +36,7 @@ final class ContainerToolsCommand
             fwrite(STDERR, self::usage());
             return 2;
         }
-        fwrite(STDOUT, $result->stdout);
+        fwrite(STDOUT, $this->render($result));
         fwrite(STDERR, $result->stderr);
 
         return $result->status;
@@ -43,7 +44,7 @@ final class ContainerToolsCommand
 
     private static function usage(): string
     {
-        return "usage: container-tools [--connection NAME] image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | status NAME | wait-ready NAME -- PROBE... | exec [--input] NAME -- COMMAND... | destroy NAME\n";
+        return "usage: container-tools [--connection NAME] podman PODMAN_ARGS... | image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | status NAME | wait-ready NAME -- PROBE... | exec [--input] NAME -- COMMAND... | destroy NAME\n";
     }
 
     private function create(array $arguments): ?CommandResult
@@ -87,9 +88,10 @@ final class ContainerToolsCommand
         if (!$created->succeeded() || !$start) {
             return $created;
         }
-        $target = $name ?? trim($created->stdout);
+        $container = $created->data['container'] ?? [];
+        $target = $name ?? $container['name'] ?? $container['id'] ?? trim($created->stdout);
         if ($target === '') {
-            return new CommandResult(1, $created->stdout, $created->stderr . "Podman did not return a container ID\n");
+            return new CommandResult(1, $created->stdout, $created->stderr . "Podman did not return a container name or ID\n", $created->data);
         }
         $started = $this->manager->start($target);
 
@@ -97,6 +99,11 @@ final class ContainerToolsCommand
             $started->status,
             $created->stdout . $started->stdout,
             $created->stderr . $started->stderr,
+            [
+                ...$created->data,
+                'summary' => $started->succeeded() ? 'Container created and started' : 'Container created but failed to start',
+                'container' => $started->data['container'] ?? $container,
+            ],
         );
     }
 
@@ -124,6 +131,53 @@ final class ContainerToolsCommand
         $contents = $input ? stream_get_contents(STDIN) : null;
 
         return $this->manager->exec($name, $arguments, $contents === false ? null : $contents);
+    }
+
+    private function render(CommandResult $result): string
+    {
+        if ($result->data === []) {
+            return $result->stdout;
+        }
+
+        $lines = [];
+        if (isset($result->data['summary'])) {
+            $lines[] = $result->data['summary'];
+        }
+        foreach (($result->data['container'] ?? []) as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $label = match ($key) {
+                'id' => 'ID',
+                'short_id' => 'Short ID',
+                'name' => 'Name',
+                'image' => 'Image',
+                'hostname' => 'Hostname',
+                'status' => 'Status',
+                'reference' => 'Reference',
+                default => ucfirst(str_replace('_', ' ', $key)),
+            };
+            $lines[] = "$label: " . (is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_SLASHES));
+        }
+        foreach (['image' => 'Image', 'pulled' => 'Pulled', 'elapsed_seconds' => 'Elapsed seconds', 'exit_code' => 'Exit code'] as $key => $label) {
+            if (array_key_exists($key, $result->data) && $result->data[$key] !== null) {
+                $lines[] = "$label: " . (is_bool($result->data[$key]) ? ($result->data[$key] ? 'yes' : 'no') : (string) $result->data[$key]);
+            }
+        }
+        if (isset($result->data['requested']) && is_array($result->data['requested'])) {
+            foreach ($result->data['requested'] as $key => $value) {
+                if ($value === null || $value === [] || $value === '') {
+                    continue;
+                }
+                $lines[] = 'Requested ' . str_replace('_', ' ', $key) . ': ' . (is_array($value) ? json_encode($value, JSON_UNESCAPED_SLASHES) : (string) $value);
+            }
+        }
+
+        if ($result->stdout !== '' && in_array($result->data['operation'] ?? '', ['exec', 'wait-ready', 'image-pull'], true)) {
+            $lines[] = rtrim($result->stdout, "\r\n");
+        }
+
+        return implode("\n", $lines) . "\n";
     }
 
 }

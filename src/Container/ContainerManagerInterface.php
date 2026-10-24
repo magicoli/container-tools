@@ -23,4 +23,7 @@ interface ContainerManagerInterface
     public function exec(string $name, array $command, ?string $input = null): CommandResult;
 
     public function destroy(string $name): CommandResult;
+
+    /** Pass native engine arguments through without narrowing its command surface. */
+    public function run(array $arguments, ?string $input = null): CommandResult;
 }
