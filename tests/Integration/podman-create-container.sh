@@ -26,8 +26,9 @@ trap cleanup EXIT
 
 build_output=$(run_cli build --file="$containerfile" --tag="$image" "$context")
 grep -q 'Image: ' <<<"$build_output"
-create_output=$(run_cli create --name="$name" --image="$image" --label='test.caller=bash')
+create_output=$(run_cli create --name="$name" --image="$image" --label='test.caller=bash' --publish=80)
 printf '%s\n' "$create_output"
+grep -Fq -- '-> 80/tcp' <<<"$create_output"
 if grep -q 'API inspection:' <<<"$create_output"; then
 	echo 'Full API inspection leaked into the default output' >&2
 	exit 1

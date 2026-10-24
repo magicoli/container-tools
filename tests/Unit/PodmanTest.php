@@ -8,6 +8,9 @@ use GuzzleHttp\Psr7\Response;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\Driver\Podman;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
+use Magicoli\ContainerTools\Container\NetworkAttachment;
+use Magicoli\ContainerTools\Container\NetworkDefinition;
+use Magicoli\ContainerTools\Container\PortForward;
 
 function podman_api(array $responses, ?array &$history = null): Podman
 {
@@ -204,4 +207,101 @@ test('a missing container is reported from the REST API response', function () {
     expect($result->status)->toBe(404);
     expect($result->stderr)->toContain('no such container');
     expect($result->data['operation'])->toBe('destroy');
+});
+
+test('network creation sends DHCP or static IPAM settings through the REST API', function () {
+    $history = [];
+    $podman = podman_api([api_version(), new Response(201, [], '{"Id":"network-id","Warning":""}')], $history);
+
+    $result = $podman->createNetwork(new NetworkDefinition(
+        'lan-dhcp', 'macvlan', 'enp3s0', 'dhcp', ipv6Enabled: true,
+    ));
+
+    expect($result->status)->toBe(0);
+    expect($result->data['summary'])->toBe('Network created');
+    $request = json_decode((string) $history[1]['request']->getBody(), true);
+    expect($request)->toMatchArray([
+        'Name' => 'lan-dhcp', 'Driver' => 'macvlan', 'EnableIPv6' => true,
+        'IPAM' => ['Driver' => 'dhcp', 'Config' => []],
+        'Options' => ['parent' => 'enp3s0'],
+    ]);
+
+    $podman = podman_api([api_version(), new Response(201, [], '{"Id":"network-id"}')], $history);
+    $podman->createNetwork(new NetworkDefinition(
+        'lan-static', 'macvlan', 'enp3s0', 'host-local', '192.0.2.0/24', '192.0.2.1', '2001:db8:1::/64', '2001:db8:1::1', true,
+    ));
+    $request = json_decode((string) $history[1]['request']->getBody(), true);
+    expect($request['IPAM']['Config'])->toBe([
+        ['Subnet' => '192.0.2.0/24', 'Gateway' => '192.0.2.1'],
+        ['Subnet' => '2001:db8:1::/64', 'Gateway' => '2001:db8:1::1'],
+    ]);
+});
+
+test('container creation attaches requested static IPv4 and IPv6 addresses', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(),
+        new Response(200, [], '{"Name":"lan-static","Driver":"macvlan"}'),
+        new Response(200, [], '{"Id":"image-id"}'),
+        new Response(201, [], json_encode(['Id' => str_repeat('c', 64)], JSON_THROW_ON_ERROR)),
+        new Response(200, [], json_encode([
+            'Id' => str_repeat('c', 64), 'Name' => '/fixed-node',
+            'Config' => ['Hostname' => 'fixed-node', 'Image' => 'alpine:3.24'],
+            'State' => ['Status' => 'created'],
+            'NetworkSettings' => ['Networks' => ['lan-static' => ['IPAddress' => '192.0.2.22', 'GlobalIPv6Address' => '2001:db8:1::22']]],
+        ], JSON_THROW_ON_ERROR)),
+    ], $history);
+
+    $result = $podman->create(new ContainerDefinition(
+        name: 'fixed-node', image: 'alpine:3.24', network: new NetworkAttachment('lan-static', '192.0.2.22', '2001:db8:1::22'),
+    ));
+
+    expect($result->status)->toBe(0);
+    expect($result->data['container']['networks']['lan-static'])->toMatchArray(['ipv4' => '192.0.2.22', 'ipv6' => '2001:db8:1::22']);
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
+    expect($body['HostConfig']['NetworkMode'])->toBe('lan-static');
+    expect($body['NetworkingConfig']['EndpointsConfig']['lan-static']['IPAMConfig'])->toBe([
+        'IPv4Address' => '192.0.2.22', 'IPv6Address' => '2001:db8:1::22',
+    ]);
+});
+
+test('published ports include host mapping details in the container result', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(),
+        new Response(200, [], '{"Id":"image-id"}'),
+        new Response(201, [], json_encode(['Id' => str_repeat('d', 64)], JSON_THROW_ON_ERROR)),
+        new Response(200, [], json_encode([
+            'Id' => str_repeat('d', 64), 'Name' => '/web',
+            'Config' => ['Hostname' => 'web', 'Image' => 'nginx:alpine'], 'State' => ['Status' => 'created'],
+            'NetworkSettings' => ['Ports' => ['80/tcp' => [['HostIp' => '127.0.0.1', 'HostPort' => '8080']]]],
+        ], JSON_THROW_ON_ERROR)),
+    ], $history);
+
+    $podman->create(new ContainerDefinition('web', 'nginx:alpine', portForwards: [new PortForward(8080, 80, hostIp: '127.0.0.1')]));
+    $body = json_decode((string) $history[2]['request']->getBody(), true);
+    expect($body['HostConfig']['PortBindings']['80/tcp'])->toBe([['HostIp' => '127.0.0.1', 'HostPort' => '8080']]);
+});
+
+test('container creation rejects published ports on macvlan and ipvlan networks', function () {
+    $podman = podman_api([
+        api_version(), new Response(200, [], '{"Name":"lan","Driver":"macvlan"}'),
+    ]);
+    $result = $podman->create(new ContainerDefinition(
+        image: 'alpine:3.24', portForwards: [new PortForward(8080, 80)], network: new NetworkAttachment('lan'),
+    ));
+
+    expect($result->status)->toBe(2);
+    expect($result->stderr)->toContain('not supported with macvlan');
+});
+
+test('port mapping parser accepts fixed and automatic host ports', function () {
+    $fixed = PortForward::parse('8080:80');
+    expect($fixed->hostPort)->toBe(8080);
+    expect($fixed->containerPort)->toBe(80);
+    expect($fixed->protocol())->toBe('tcp');
+    $automatic = PortForward::parse('53/udp');
+    expect($automatic->hostPort)->toBeNull();
+    expect($automatic->containerPort)->toBe(53);
+    expect($automatic->protocol())->toBe('udp');
 });

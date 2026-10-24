@@ -12,6 +12,12 @@ interface ContainerManagerInterface
 
     public function build(ImageBuildDefinition $image): CommandResult;
 
+    public function createNetwork(NetworkDefinition $network): CommandResult;
+
+    public function inspectNetwork(string $name): CommandResult;
+
+    public function destroyNetwork(string $name): CommandResult;
+
     public function create(ContainerDefinition $container): CommandResult;
 
     public function start(string $name): CommandResult;

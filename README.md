@@ -41,6 +41,62 @@ Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. 
 - `start NAME` starts an existing stopped container; `stop NAME` stops a running container.
 - `destroy NAME` removes a container, stopping it first if needed.
 - `image-pull IMAGE` downloads an image explicitly before creation.
+- `network create|inspect|destroy` manages Podman networks for containers that need a direct network address.
+
+## Container networking
+
+Choose between ordinary host-port publishing and a direct address on a network. A container cannot combine published ports with `macvlan` or `ipvlan`; those drivers do not implement port forwarding.
+
+### Host port forwarding
+
+Publish a container service on a host port. The host and container ports can differ, or Podman can choose an unused host port:
+
+```bash
+./bin/container-tools create --name web --image docker.io/library/nginx:alpine --publish 8080:80
+./bin/container-tools wait-ready web -- wget -q -O /dev/null http://127.0.0.1/
+curl http://127.0.0.1:8080/
+./bin/container-tools status web
+./bin/container-tools destroy web
+```
+
+Repeat `--publish` for each service; add `/udp` for UDP ports. `--publish 53/udp` requests an automatically chosen host port. The result reports the effective host-to-container mappings.
+
+### Direct address from DHCP
+
+On a Linux Podman host, create a macvlan network on the physical LAN interface and let the LAN's DHCP server assign the container address:
+
+```bash
+sudo systemctl enable --now netavark-dhcp-proxy.socket
+sudo ./bin/container-tools network create --name opensim-lan --driver macvlan --parent enp3s0 --ipam dhcp
+sudo ./bin/container-tools create --name opensim-1 --image localhost/opensim:latest --network opensim-lan
+sudo ./bin/container-tools status opensim-1
+```
+
+Use the address printed for the `opensim-lan` network to reach the container directly; no host-port mapping is involved. Omit `--parent` to let Podman use the default route interface. The DHCP IPAM mode needs Podman's `netavark-dhcp-proxy.socket`. It obtains an IPv4 lease; Podman's current DHCP IPAM does not promise a DHCPv6 lease, so use a static IPv6 address or router-advertised addressing when IPv6 is needed.
+
+### Direct fixed IPv4 and/or IPv6
+
+Create a macvlan network with the LAN's actual subnets and gateways, then choose an unused address for each container:
+
+```bash
+sudo ./bin/container-tools network create \
+  --name opensim-fixed --driver macvlan --parent enp3s0 --ipam host-local \
+  --ipv4-subnet 192.168.1.0/24 --ipv4-gateway 192.168.1.1 \
+  --ipv6-subnet 2001:db8:1234::/64 --ipv6-gateway 2001:db8:1234::1 --ipv6
+sudo ./bin/container-tools create --name opensim-2 --image localhost/opensim:latest \
+  --network opensim-fixed --ip4 192.168.1.52 --ip6 2001:db8:1234::52
+```
+
+Omit either subnet/gateway pair and its corresponding `--ip4` or `--ip6` option to use only IPv4 or IPv6. Replace the documentation IPv6 range above with a prefix routed to the host; `2001:db8::/32` is reserved for examples and is not publicly routable.
+
+These direct-LAN modes depend on the Linux host's network, permissions, interface and router configuration. Podman's macvlan/ipvlan drivers cannot access host interfaces from rootless mode and do not support published ports. On macOS and Windows, Podman runs inside a Linux virtual machine, so a macvlan parent refers to an interface in that VM, not directly to the physical host LAN; direct LAN addressing must be verified on the target Linux Podman server. If the network should stay private to Podman, use the ordinary bridge network and publish only the ports you need.
+
+Remove a direct network after removing all containers attached to it:
+
+```bash
+sudo ./bin/container-tools destroy opensim-2
+sudo ./bin/container-tools network destroy opensim-fixed
+```
 
 ## PHP
 

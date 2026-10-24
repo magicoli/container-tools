@@ -3,6 +3,7 @@
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\Driver\Podman;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
+use Magicoli\ContainerTools\Container\PortForward;
 
 function integration_podman(): Podman
 {
@@ -41,7 +42,12 @@ describe('Podman integration', function () {
 
         try {
             build_integration_image($podman, 'debian12');
-            $result = $podman->create(new ContainerDefinition($name, integration_image('debian12'), ['test.caller' => 'php']));
+            $result = $podman->create(new ContainerDefinition(
+                $name,
+                integration_image('debian12'),
+                ['test.caller' => 'php'],
+                portForwards: [new PortForward(null, 80, hostIp: '127.0.0.1')],
+            ));
             expect($result->status)->toBe(0, $result->stderr);
             $created = true;
             expect($result->data['container']['name'])->toBe($name);
@@ -50,7 +56,14 @@ describe('Podman integration', function () {
             expect($result->data['container']['api']['Config']['OpenStdin'])->toBeTrue();
             expect($result->data['container']['api']['Config']['Tty'])->toBeTrue();
             expect(array_keys($result->data['container']['api']['Config']['ExposedPorts']))->toContain('22/tcp', '80/tcp', '443/tcp');
-            expect($podman->start($name)->status)->toBe(0);
+            $started = $podman->start($name);
+            expect($started->status)->toBe(0);
+            expect($started->data['container']['ports'])->toHaveCount(1);
+            expect($started->data['container']['ports'][0])->toMatchArray([
+                'container' => '80/tcp',
+                'host_ip' => '127.0.0.1',
+            ]);
+            expect($started->data['container']['ports'][0]['host_port'] ?? '')->not->toBe('');
             $probe = ['sh', '-c', 'wget -q -O /dev/null http://127.0.0.1/ && cat /proc/net/tcp /proc/net/tcp6 | grep -q ":0016 " && cat /proc/net/tcp /proc/net/tcp6 | grep -q ":0050 " && cat /proc/net/tcp /proc/net/tcp6 | grep -q ":01BB "'];
             $ready = $podman->waitUntilReady($name, $probe);
             expect($ready->status)->toBe(0, $ready->stderr . $ready->stdout);

@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Magicoli\ContainerTools\Console;
 
+use InvalidArgumentException;
 use Magicoli\ContainerTools\Container\CommandResult;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
+use Magicoli\ContainerTools\Container\NetworkAttachment;
+use Magicoli\ContainerTools\Container\NetworkDefinition;
+use Magicoli\ContainerTools\Container\PortForward;
 
 final class ContainerToolsCommand
 {
@@ -36,18 +40,24 @@ final class ContainerToolsCommand
         }
 
         $action = array_shift($arguments) ?? '';
-        $result = match ($action) {
-            'image-pull' => count($arguments) === 1 ? $this->manager->pull($arguments[0]) : null,
-            'build' => $this->build($arguments),
-            'create' => $this->create($arguments),
-            'start' => count($arguments) === 1 ? $this->manager->start($arguments[0]) : null,
-            'stop' => count($arguments) === 1 ? $this->manager->stop($arguments[0]) : null,
-            'status' => count($arguments) === 1 ? $this->manager->status($arguments[0]) : null,
-            'wait-ready' => $this->ready($arguments),
-            'exec' => $this->execute($arguments),
-            'destroy' => count($arguments) === 1 ? $this->manager->destroy($arguments[0]) : null,
-            default => null,
-        };
+        try {
+            $result = match ($action) {
+                'image-pull' => count($arguments) === 1 ? $this->manager->pull($arguments[0]) : null,
+                'build' => $this->build($arguments),
+                'create' => $this->create($arguments),
+                'network' => $this->network($arguments),
+                'start' => count($arguments) === 1 ? $this->manager->start($arguments[0]) : null,
+                'stop' => count($arguments) === 1 ? $this->manager->stop($arguments[0]) : null,
+                'status' => count($arguments) === 1 ? $this->manager->status($arguments[0]) : null,
+                'wait-ready' => $this->ready($arguments),
+                'exec' => $this->execute($arguments),
+                'destroy' => count($arguments) === 1 ? $this->manager->destroy($arguments[0]) : null,
+                default => null,
+            };
+        } catch (InvalidArgumentException $exception) {
+            fwrite(STDERR, 'container-tools: ' . $exception->getMessage() . "\n");
+            return 2;
+        }
 
         if (!$result instanceof CommandResult) {
             fwrite(STDERR, self::usage());
@@ -63,7 +73,7 @@ final class ContainerToolsCommand
 
     private static function usage(): string
     {
-        return "usage: container-tools [-v|--verbose] [-q|--quiet] [-h|--help] [-d|--dry-run] [--container-connection NAME] image-pull IMAGE | build --file FILE --tag IMAGE [--from BASE_IMAGE] [--no-cache] [CONTEXT] | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
+        return "usage: container-tools [-v|--verbose] [-q|--quiet] [-h|--help] [-d|--dry-run] [--container-connection NAME] image-pull IMAGE | build --file FILE --tag IMAGE [--from BASE_IMAGE] [--no-cache] [CONTEXT] | network create --name NAME [--driver bridge|macvlan|ipvlan] [--parent IFACE] [--ipam host-local|dhcp|none] [--ipv4-subnet CIDR] [--ipv4-gateway IP] [--ipv6-subnet CIDR] [--ipv6-gateway IP] [--ipv6] | network inspect|destroy NAME | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--publish [HOST_PORT:]CONTAINER_PORT[/tcp|udp]] [--network NAME [--ip4 IP] [--ip6 IP]] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
     }
 
     /** @return array{array, bool, bool, bool, bool} */
@@ -99,7 +109,7 @@ final class ContainerToolsCommand
                 $help = true;
                 continue;
             }
-            if (in_array($argument, ['--name', '--image', '--hostname', '--memory', '--label', '--file', '--tag', '--from'], true)) {
+            if (in_array($argument, ['--name', '--image', '--hostname', '--memory', '--label', '--file', '--tag', '--from', '--publish', '--network', '--ip4', '--ip6', '--driver', '--parent', '--ipam', '--ipv4-subnet', '--ipv4-gateway', '--ipv6-subnet', '--ipv6-gateway'], true)) {
                 $expectsValue = true;
             }
             $filtered[] = $argument;
@@ -154,6 +164,8 @@ final class ContainerToolsCommand
         $name = $memory = $hostname = null;
         $image = getenv('CONTAINER_IMAGE') ?: ContainerDefinition::DEFAULT_IMAGE;
         $labels = [];
+        $portForwards = [];
+        $networkName = $ipv4 = $ipv6 = null;
         $start = true;
         $command = [];
         while ($arguments !== []) {
@@ -178,13 +190,21 @@ final class ContainerToolsCommand
                 '--hostname' => $hostname = $value,
                 '--memory' => $memory = $value,
                 '--label' => $labels[] = $value,
+                '--publish' => $portForwards[] = PortForward::parse($value),
+                '--network' => $networkName = $value,
+                '--ip4' => $ipv4 = $value,
+                '--ip6' => $ipv6 = $value,
                 default => null,
             };
-            if (!in_array($option, ['--name', '--image', '--hostname', '--memory', '--label'], true)) {
+            if (!in_array($option, ['--name', '--image', '--hostname', '--memory', '--label', '--publish', '--network', '--ip4', '--ip6'], true)) {
                 return null;
             }
         }
-        $created = $this->manager->create(new ContainerDefinition($name, $image, $labels, $memory, $command, $hostname));
+        if (($ipv4 !== null || $ipv6 !== null) && $networkName === null) {
+            return null;
+        }
+        $network = $networkName === null ? null : new NetworkAttachment($networkName, $ipv4, $ipv6);
+        $created = $this->manager->create(new ContainerDefinition($name, $image, $labels, $memory, $command, $hostname, portForwards: $portForwards, network: $network));
         if (!$created->succeeded() || !$start) {
             return $created;
         }
@@ -209,6 +229,59 @@ final class ContainerToolsCommand
                 'container' => $startedContainer,
             ],
         );
+    }
+
+    private function network(array $arguments): ?CommandResult
+    {
+        $action = array_shift($arguments);
+        if ($action === 'inspect' || $action === 'destroy') {
+            if (count($arguments) !== 1) {
+                return null;
+            }
+            return $action === 'inspect'
+                ? $this->manager->inspectNetwork($arguments[0])
+                : $this->manager->destroyNetwork($arguments[0]);
+        }
+        if ($action !== 'create') {
+            return null;
+        }
+
+        $values = [
+            '--name' => null, '--driver' => 'bridge', '--parent' => null, '--ipam' => 'host-local',
+            '--ipv4-subnet' => null, '--ipv4-gateway' => null, '--ipv6-subnet' => null, '--ipv6-gateway' => null,
+        ];
+        $ipv6 = false;
+        while ($arguments !== []) {
+            $option = array_shift($arguments);
+            if ($option === '--ipv6') {
+                $ipv6 = true;
+                continue;
+            }
+            [$key, $value] = array_pad(explode('=', $option, 2), 2, null);
+            if (!array_key_exists($key, $values)) {
+                return null;
+            }
+            $value ??= array_shift($arguments);
+            if ($value === null || $value === '') {
+                return null;
+            }
+            $values[$key] = $value;
+        }
+        if ($values['--name'] === null) {
+            return null;
+        }
+        $network = new NetworkDefinition(
+            name: $values['--name'],
+            driver: $values['--driver'],
+            parent: $values['--parent'],
+            ipamDriver: $values['--ipam'],
+            ipv4Subnet: $values['--ipv4-subnet'],
+            ipv4Gateway: $values['--ipv4-gateway'],
+            ipv6Subnet: $values['--ipv6-subnet'],
+            ipv6Gateway: $values['--ipv6-gateway'],
+            ipv6Enabled: $ipv6 || $values['--ipv6-subnet'] !== null,
+        );
+        return $this->manager->createNetwork($network);
     }
 
     private function ready(array $arguments): ?CommandResult
@@ -253,6 +326,20 @@ final class ContainerToolsCommand
                 }
                 continue;
             }
+            if ($key === 'ports') {
+                foreach ($value as $port) {
+                    $host = ($port['host_ip'] ?? '') !== '' ? $port['host_ip'] . ':' : '';
+                    $lines[] = 'Published port: ' . ($host ?: 'host') . ($port['host_port'] ?? '?') . ' -> ' . ($port['container'] ?? '?');
+                }
+                continue;
+            }
+            if ($key === 'networks') {
+                foreach ($value as $networkName => $addresses) {
+                    $ips = array_filter([$addresses['ipv4'] ?? null, $addresses['ipv6'] ?? null]);
+                    $lines[] = 'Network: ' . $networkName . (count($ips) > 0 ? ' (' . implode(', ', $ips) . ')' : '');
+                }
+                continue;
+            }
             $label = match ($key) {
                 'id' => 'ID',
                 'short_id' => 'Short ID',
@@ -268,12 +355,38 @@ final class ContainerToolsCommand
             $display = is_bool($value) ? ($value ? 'yes' : 'no') : (is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_SLASHES));
             $lines[] = "$label: $display";
         }
+        if (isset($result->data['network']) && is_array($result->data['network'])) {
+            $network = $result->data['network'];
+            foreach (['Name' => 'Name', 'name' => 'Name', 'Driver' => 'Driver', 'EnableIPv6' => 'IPv6 enabled', 'IPv6Enabled' => 'IPv6 enabled', 'Id' => 'ID', 'id' => 'ID'] as $key => $label) {
+                if (isset($network[$key])) {
+                    $lines[] = $label . ': ' . (is_bool($network[$key]) ? ($network[$key] ? 'yes' : 'no') : $network[$key]);
+                }
+            }
+            $parent = $network['Options']['parent'] ?? $network['NetworkInterface'] ?? null;
+            if ($parent !== null && $parent !== '') {
+                $lines[] = 'Parent interface: ' . $parent;
+            }
+            $ipam = $network['IPAM'] ?? null;
+            if (is_array($ipam)) {
+                if (isset($ipam['Driver'])) {
+                    $lines[] = 'IPAM: ' . $ipam['Driver'];
+                }
+                foreach (($ipam['Config'] ?? []) as $config) {
+                    if (isset($config['Subnet'])) {
+                        $lines[] = 'Subnet: ' . $config['Subnet'];
+                    }
+                    if (isset($config['Gateway'])) {
+                        $lines[] = 'Gateway: ' . $config['Gateway'];
+                    }
+                }
+            }
+        }
         foreach (['image' => 'Image', 'pulled' => 'Pulled', 'image_pulled' => 'Image pulled', 'elapsed_seconds' => 'Elapsed seconds', 'exit_code' => 'Exit code'] as $key => $label) {
             if (array_key_exists($key, $result->data) && $result->data[$key] !== null) {
                 $lines[] = "$label: " . (is_bool($result->data[$key]) ? ($result->data[$key] ? 'yes' : 'no') : (string) $result->data[$key]);
             }
         }
-        if (isset($result->data['requested']) && is_array($result->data['requested'])) {
+        if (($result->data['operation'] ?? '') !== 'network-create' && isset($result->data['requested']) && is_array($result->data['requested'])) {
             foreach ($result->data['requested'] as $key => $value) {
                 if ($value === null || $value === [] || $value === '') {
                     continue;

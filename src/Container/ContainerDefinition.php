@@ -19,12 +19,19 @@ final readonly class ContainerDefinition
         public ?string $hostname = null,
         public bool $openStdin = true,
         public bool $tty = true,
+        public array $portForwards = [],
+        public ?NetworkAttachment $network = null,
     ) {
         if ($name === '') {
             throw new InvalidArgumentException('A container name cannot be empty.');
         }
         if ($image === '') {
             throw new InvalidArgumentException('A container image cannot be empty.');
+        }
+        foreach ($portForwards as $forward) {
+            if (!$forward instanceof PortForward) {
+                throw new InvalidArgumentException('Port forwards must be PortForward instances.');
+            }
         }
     }
 }

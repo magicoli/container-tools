@@ -10,6 +10,7 @@ use Magicoli\ContainerTools\Container\CommandResult;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
+use Magicoli\ContainerTools\Container\NetworkDefinition;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
@@ -155,8 +156,79 @@ final class Podman implements ContainerManagerInterface
         }
     }
 
+    public function createNetwork(NetworkDefinition $network): CommandResult
+    {
+        $ipamConfig = [];
+        if ($network->ipv4Subnet !== null) {
+            $ipamConfig[] = array_filter(['Subnet' => $network->ipv4Subnet, 'Gateway' => $network->ipv4Gateway], static fn ($value) => $value !== null);
+        }
+        if ($network->ipv6Subnet !== null) {
+            $ipamConfig[] = array_filter(['Subnet' => $network->ipv6Subnet, 'Gateway' => $network->ipv6Gateway], static fn ($value) => $value !== null);
+        }
+
+        $definition = [
+            'Name' => $network->name,
+            'Driver' => $network->driver,
+            'EnableIPv6' => $network->ipv6Enabled,
+            'IPAM' => ['Driver' => $network->ipamDriver, 'Config' => $ipamConfig],
+        ];
+        if ($network->parent !== null) {
+            $definition['Options'] = ['parent' => $network->parent];
+        }
+
+        $result = $this->request('POST', $this->path('networks/create'), $definition);
+        $response = json_decode($result->stdout, true);
+        return $result->withData([
+            'operation' => 'network-create',
+            'summary' => $result->succeeded() ? 'Network created' : 'Network creation failed',
+            'network' => is_array($response) ? [...$definition, ...$response] : $definition,
+            'requested' => $definition,
+        ]);
+    }
+
+    public function inspectNetwork(string $name): CommandResult
+    {
+        $result = $this->request('GET', $this->path('networks/' . rawurlencode($name)));
+        $network = json_decode($result->stdout, true);
+        return $result->withData([
+            'operation' => 'network-inspect',
+            'summary' => $result->succeeded() ? 'Network details' : 'Network inspection failed',
+            'network' => is_array($network) ? $network : ['name' => $name],
+        ]);
+    }
+
+    public function destroyNetwork(string $name): CommandResult
+    {
+        $result = $this->request('DELETE', $this->path('networks/' . rawurlencode($name)));
+        return $result->withData([
+            'operation' => 'network-destroy',
+            'summary' => $result->succeeded() ? 'Network destroyed' : 'Network destruction failed',
+            'network' => ['name' => $name],
+        ]);
+    }
+
     public function create(ContainerDefinition $container): CommandResult
     {
+        if ($container->network !== null) {
+            $network = $this->inspectNetwork($container->network->name);
+            if (!$network->succeeded()) {
+                return $network->withData([
+                    'operation' => 'create',
+                    'summary' => 'Container creation failed because its network is unavailable',
+                    'requested' => $this->requestedDefinition($container),
+                ]);
+            }
+            $driver = $network->data['network']['Driver'] ?? null;
+            if (in_array($driver, ['macvlan', 'ipvlan'], true) && $container->portForwards !== []) {
+                return new CommandResult(2, stderr: "Published ports are not supported with $driver networks; attach the container directly instead.\n", data: [
+                    'operation' => 'create',
+                    'summary' => 'Container creation failed because the network driver does not support port publishing',
+                    'network' => $container->network->name,
+                    'driver' => $driver,
+                    'requested' => $this->requestedDefinition($container),
+                ]);
+            }
+        }
         $image = $this->pull($container->image);
         if (!$image->succeeded()) {
             return $image->withData([
@@ -182,8 +254,43 @@ final class Podman implements ContainerManagerInterface
         if ($container->command !== []) {
             $config['Cmd'] = $container->command;
         }
+        $hostConfig = [];
         if ($container->memory !== null && $container->memory !== '') {
-            $config['HostConfig'] = ['Memory' => $this->memoryBytes($container->memory)];
+            $hostConfig['Memory'] = $this->memoryBytes($container->memory);
+        }
+        if ($container->portForwards !== []) {
+            $portBindings = [];
+            foreach ($container->portForwards as $forward) {
+                $binding = [];
+                if ($forward->hostIp !== null) {
+                    $binding['HostIp'] = $forward->hostIp;
+                }
+                if ($forward->hostPort !== null) {
+                    $binding['HostPort'] = (string) $forward->hostPort;
+                }
+                $portBindings[$forward->containerPort . '/' . $forward->protocol()][] = (object) $binding;
+            }
+            $hostConfig['PortBindings'] = $portBindings;
+        }
+        if ($container->network !== null) {
+            $hostConfig['NetworkMode'] = $container->network->name;
+        }
+        if ($hostConfig !== []) {
+            $config['HostConfig'] = $hostConfig;
+        }
+        if ($container->network !== null) {
+            $endpoint = [];
+            $ipam = [];
+            if ($container->network->ipv4 !== null) {
+                $ipam['IPv4Address'] = $container->network->ipv4;
+            }
+            if ($container->network->ipv6 !== null) {
+                $ipam['IPv6Address'] = $container->network->ipv6;
+            }
+            if ($ipam !== []) {
+                $endpoint['IPAMConfig'] = $ipam;
+            }
+            $config['NetworkingConfig'] = ['EndpointsConfig' => [$container->network->name => (object) $endpoint]];
         }
 
         $result = $this->request('POST', $this->path('containers/create') . $query, $config);
@@ -379,6 +486,24 @@ final class Podman implements ContainerManagerInterface
     private function details(array $container): array
     {
         $id = $container['Id'] ?? null;
+        $ports = [];
+        foreach (($container['NetworkSettings']['Ports'] ?? []) as $containerPort => $bindings) {
+            foreach ($bindings ?? [] as $binding) {
+                $ports[] = [
+                    'container' => $containerPort,
+                    'host_ip' => $binding['HostIp'] ?? null,
+                    'host_port' => $binding['HostPort'] ?? null,
+                ];
+            }
+        }
+        $networks = [];
+        foreach (($container['NetworkSettings']['Networks'] ?? []) as $networkName => $network) {
+            $networks[$networkName] = [
+                'ipv4' => $network['IPAddress'] ?? null,
+                'ipv6' => $network['GlobalIPv6Address'] ?? null,
+                'gateway' => $network['Gateway'] ?? null,
+            ];
+        }
         return [
             'id' => $id,
             'short_id' => is_string($id) ? substr($id, 0, 12) : null,
@@ -388,13 +513,35 @@ final class Podman implements ContainerManagerInterface
             'status' => $container['State']['Status'] ?? null,
             'open_stdin' => $container['Config']['OpenStdin'] ?? null,
             'tty' => $container['Config']['Tty'] ?? null,
+            'ports' => $ports,
+            'networks' => $networks,
             'api' => $container,
         ];
     }
 
     private function requestedDefinition(ContainerDefinition $container): array
     {
-        return ['name' => $container->name, 'image' => $container->image, 'hostname' => $container->hostname ?? $container->name, 'labels' => $container->labels, 'memory' => $container->memory, 'command' => $container->command, 'open_stdin' => $container->openStdin, 'tty' => $container->tty];
+        return [
+            'name' => $container->name,
+            'image' => $container->image,
+            'hostname' => $container->hostname ?? $container->name,
+            'labels' => $container->labels,
+            'memory' => $container->memory,
+            'command' => $container->command,
+            'open_stdin' => $container->openStdin,
+            'tty' => $container->tty,
+            'port_forwards' => array_map(static fn ($forward) => [
+                'host_ip' => $forward->hostIp,
+                'host_port' => $forward->hostPort,
+                'container_port' => $forward->containerPort,
+                'protocol' => $forward->protocol(),
+            ], $container->portForwards),
+            'network' => $container->network === null ? null : [
+                'name' => $container->network->name,
+                'ipv4' => $container->network->ipv4,
+                'ipv6' => $container->network->ipv6,
+            ],
+        ];
     }
 
     private function memoryBytes(string $memory): int
