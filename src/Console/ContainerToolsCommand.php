@@ -14,13 +14,23 @@ final class ContainerToolsCommand
 
     public function run(array $arguments): int
     {
-        $verbose = ($arguments[0] ?? null) === '--verbose';
-        if ($verbose) {
-            array_shift($arguments);
+        [$arguments, $verbose, $quiet, $dryRun, $help] = $this->globalOptions($arguments);
+
+        if ($help || in_array($arguments[0] ?? '', ['--help', '-h'], true)) {
+            fwrite(STDOUT, self::usage());
+            return 0;
         }
 
-        if (in_array($arguments[0] ?? '', ['--help', '-h'], true)) {
-            fwrite(STDOUT, self::usage());
+        if ($arguments === []) {
+            fwrite(STDERR, self::usage());
+            return 2;
+        }
+
+        if ($dryRun) {
+            if (!$quiet) {
+                $command = implode(' ', array_map('escapeshellarg', $arguments));
+                fwrite(STDOUT, "Dry run: no action performed.\nWould run: $command\n");
+            }
             return 0;
         }
 
@@ -41,7 +51,9 @@ final class ContainerToolsCommand
             fwrite(STDERR, self::usage());
             return 2;
         }
-        fwrite(STDOUT, $this->render($result, $verbose));
+        if (!$quiet) {
+            fwrite(STDOUT, $this->render($result, $verbose));
+        }
         fwrite(STDERR, $result->stderr);
 
         return $result->status;
@@ -49,7 +61,49 @@ final class ContainerToolsCommand
 
     private static function usage(): string
     {
-        return "usage: container-tools [--verbose] [--container-connection NAME] image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
+        return "usage: container-tools [-v|--verbose] [-q|--quiet] [-h|--help] [-d|--dry-run] [--container-connection NAME] image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
+    }
+
+    /** @return array{array, bool, bool, bool, bool} */
+    private function globalOptions(array $arguments): array
+    {
+        $verbose = $quiet = $dryRun = $help = false;
+        $filtered = [];
+        $expectsValue = false;
+        for ($index = 0; $index < count($arguments); $index++) {
+            $argument = $arguments[$index];
+            if ($argument === '--') {
+                array_push($filtered, ...array_slice($arguments, $index));
+                break;
+            }
+            if ($expectsValue) {
+                $filtered[] = $argument;
+                $expectsValue = false;
+                continue;
+            }
+            if (in_array($argument, ['-v', '--verbose'], true)) {
+                $verbose = true;
+                continue;
+            }
+            if (in_array($argument, ['-q', '--quiet'], true)) {
+                $quiet = true;
+                continue;
+            }
+            if (in_array($argument, ['-d', '--dry-run'], true)) {
+                $dryRun = true;
+                continue;
+            }
+            if (in_array($argument, ['-h', '--help'], true)) {
+                $help = true;
+                continue;
+            }
+            if (in_array($argument, ['--name', '--image', '--hostname', '--memory', '--label'], true)) {
+                $expectsValue = true;
+            }
+            $filtered[] = $argument;
+        }
+
+        return [$filtered, $verbose, $quiet, $dryRun, $help];
     }
 
     private function create(array $arguments): ?CommandResult
@@ -69,7 +123,9 @@ final class ContainerToolsCommand
                 $start = false;
                 continue;
             }
-            $value = array_shift($arguments);
+            $parts = explode('=', $option, 2);
+            $option = $parts[0];
+            $value = count($parts) === 2 ? $parts[1] : array_shift($arguments);
             if ($value === null) {
                 return null;
             }

@@ -18,9 +18,29 @@ CONTAINER_TOOLS_AUTOLOAD=$AUTOLOAD exec php -r '
 require getenv("CONTAINER_TOOLS_AUTOLOAD");
 $arguments = array_slice($argv, 1);
 $connection = null;
-if (($arguments[0] ?? "") === "--container-connection") {
-    array_shift($arguments);
-    $connection = array_shift($arguments) ?: null;
+for ($i = 0; $i < count($arguments); $i++) {
+    if ($arguments[$i] === "--") {
+        break;
+    }
+    if ($arguments[$i] === "--container-connection") {
+        if (!isset($arguments[$i + 1]) || str_starts_with($arguments[$i + 1], "--")) {
+            fwrite(STDERR, "container-tools: --container-connection requires a name\n");
+            exit(2);
+        }
+        $connection = $arguments[$i + 1];
+        array_splice($arguments, $i, 2);
+        $i--;
+        continue;
+    }
+    if (str_starts_with($arguments[$i], "--container-connection=")) {
+        $connection = substr($arguments[$i], strlen("--container-connection="));
+        if ($connection === "") {
+            fwrite(STDERR, "container-tools: --container-connection requires a name\n");
+            exit(2);
+        }
+        array_splice($arguments, $i, 1);
+        $i--;
+    }
 }
 $manager = new \Magicoli\ContainerTools\Container\Driver\Podman($connection);
 exit((new \Magicoli\ContainerTools\Console\ContainerToolsCommand($manager))->run($arguments));

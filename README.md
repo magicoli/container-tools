@@ -23,7 +23,7 @@ Creation defaults to keeping stdin open and allocating a TTY, matching Podman De
 ./bin/container-tools destroy example
 ```
 
-Use `--verbose` before a command to print the complete, formatted REST inspection document. The default output contains only the concise summary and key container fields.
+The global options follow the shared shell-tool conventions: `-v|--verbose` prints the complete, formatted REST inspection document, `-q|--quiet` suppresses normal output, `-h|--help` prints usage, and `-d|--dry-run` prints the requested command without performing it. They can appear before or after the action. Options with values accept both `--image IMAGE` and `--image=IMAGE` forms.
 
 Podman assigns a readable random name if `--name` is omitted; the result includes that final name and both full and short IDs. When a name is provided, the container's hostname defaults to that name. `--hostname HOSTNAME` overrides it. For an automatically assigned name, Podman chooses its hostname at creation time, so the hostname may be the container ID rather than the friendly name.
 
@@ -61,7 +61,7 @@ $podman->destroy('example');
 
 ## Bash
 
-`bin/container-tools` is a Bash wrapper around the PSR-4 command in `src/Console`. `--container-connection NAME` selects a configured Podman connection; otherwise the standard Podman `CONTAINER_CONNECTION` setting is inherited. `CONTAINER_HOST` can point directly to a Unix socket or HTTP endpoint.
+`bin/container-tools` is a Bash wrapper around the PSR-4 command in `src/Console`. `--container-connection NAME` and `--container-connection=NAME` select a configured Podman connection; otherwise the standard Podman `CONTAINER_CONNECTION` setting is inherited. `CONTAINER_HOST` can point directly to a Unix socket or HTTP endpoint.
 
 ## Alpine and OpenSim
 
