@@ -7,6 +7,7 @@ namespace Magicoli\ContainerTools\Console;
 use Magicoli\ContainerTools\Container\CommandResult;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
+use Magicoli\ContainerTools\Container\ImageBuildDefinition;
 
 final class ContainerToolsCommand
 {
@@ -37,6 +38,7 @@ final class ContainerToolsCommand
         $action = array_shift($arguments) ?? '';
         $result = match ($action) {
             'image-pull' => count($arguments) === 1 ? $this->manager->pull($arguments[0]) : null,
+            'build' => $this->build($arguments),
             'create' => $this->create($arguments),
             'start' => count($arguments) === 1 ? $this->manager->start($arguments[0]) : null,
             'stop' => count($arguments) === 1 ? $this->manager->stop($arguments[0]) : null,
@@ -61,7 +63,7 @@ final class ContainerToolsCommand
 
     private static function usage(): string
     {
-        return "usage: container-tools [-v|--verbose] [-q|--quiet] [-h|--help] [-d|--dry-run] [--container-connection NAME] image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
+        return "usage: container-tools [-v|--verbose] [-q|--quiet] [-h|--help] [-d|--dry-run] [--container-connection NAME] image-pull IMAGE | build --file FILE --tag IMAGE [--from BASE_IMAGE] [--no-cache] [CONTEXT] | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
     }
 
     /** @return array{array, bool, bool, bool, bool} */
@@ -97,13 +99,54 @@ final class ContainerToolsCommand
                 $help = true;
                 continue;
             }
-            if (in_array($argument, ['--name', '--image', '--hostname', '--memory', '--label'], true)) {
+            if (in_array($argument, ['--name', '--image', '--hostname', '--memory', '--label', '--file', '--tag', '--from'], true)) {
                 $expectsValue = true;
             }
             $filtered[] = $argument;
         }
 
         return [$filtered, $verbose, $quiet, $dryRun, $help];
+    }
+
+    private function build(array $arguments): ?CommandResult
+    {
+        $file = $tag = $from = null;
+        $context = null;
+        $noCache = false;
+        while ($arguments !== []) {
+            $option = array_shift($arguments);
+            if ($option === '--no-cache') {
+                $noCache = true;
+                continue;
+            }
+            if (str_starts_with($option, '--')) {
+                $parts = explode('=', $option, 2);
+                $name = $parts[0];
+                $value = count($parts) === 2 ? $parts[1] : array_shift($arguments);
+                if ($value === null || $value === '') {
+                    return null;
+                }
+                match ($name) {
+                    '--file' => $file = $value,
+                    '--tag' => $tag = $value,
+                    '--from' => $from = $value,
+                    default => null,
+                };
+                if (!in_array($name, ['--file', '--tag', '--from'], true)) {
+                    return null;
+                }
+                continue;
+            }
+            if ($context !== null) {
+                return null;
+            }
+            $context = $option;
+        }
+        if ($file === null || $tag === null) {
+            return null;
+        }
+        $context ??= dirname($file);
+        return $this->manager->build(new ImageBuildDefinition($file, $tag, $context, $from, $noCache));
     }
 
     private function create(array $arguments): ?CommandResult
@@ -240,6 +283,9 @@ final class ContainerToolsCommand
         }
 
         if ($result->stdout !== '' && in_array($result->data['operation'] ?? '', ['exec', 'wait-ready', 'image-pull'], true)) {
+            $lines[] = rtrim($result->stdout, "\r\n");
+        }
+        if (($result->data['operation'] ?? '') === 'build' && $verbose && $result->stdout !== '') {
             $lines[] = rtrim($result->stdout, "\r\n");
         }
 

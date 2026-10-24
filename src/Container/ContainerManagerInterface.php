@@ -10,6 +10,8 @@ interface ContainerManagerInterface
 
     public function pull(string $image): CommandResult;
 
+    public function build(ImageBuildDefinition $image): CommandResult;
+
     public function create(ContainerDefinition $container): CommandResult;
 
     public function start(string $name): CommandResult;

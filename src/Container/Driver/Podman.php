@@ -9,6 +9,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use Magicoli\ContainerTools\Container\CommandResult;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
+use Magicoli\ContainerTools\Container\ImageBuildDefinition;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
@@ -54,6 +55,104 @@ final class Podman implements ContainerManagerInterface
         }
         $result = $this->request('POST', $this->path('images/create') . '?fromImage=' . rawurlencode($image));
         return $result->withData(['operation' => 'image-pull', 'summary' => $result->succeeded() ? 'Image pulled' : 'Image pull failed', 'image' => $image, 'pulled' => true]);
+    }
+
+    public function build(ImageBuildDefinition $image): CommandResult
+    {
+        $file = realpath($image->file);
+        $context = realpath($image->context);
+        if ($file === false || !is_file($file)) {
+            return new CommandResult(2, stderr: "Containerfile not found: {$image->file}\n", data: ['operation' => 'build']);
+        }
+        if ($context === false || !is_dir($context)) {
+            return new CommandResult(2, stderr: "Build context not found: {$image->context}\n", data: ['operation' => 'build']);
+        }
+        if (!str_starts_with($file, rtrim($context, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR)) {
+            return new CommandResult(2, stderr: "Containerfile must be inside the build context.\n", data: ['operation' => 'build']);
+        }
+        if ($image->tag === '') {
+            return new CommandResult(2, stderr: "An image tag is required for a build.\n", data: ['operation' => 'build']);
+        }
+
+        $archivePath = tempnam(sys_get_temp_dir(), 'container-tools-build-');
+        if ($archivePath === false) {
+            return new CommandResult(1, stderr: "Could not create a temporary build archive.\n", data: ['operation' => 'build']);
+        }
+        unlink($archivePath);
+
+        try {
+            $dockerfile = str_replace(DIRECTORY_SEPARATOR, '/', substr($file, strlen($context) + 1));
+            $process = @proc_open(
+                ['tar', '--exclude=.git', '-C', $context, '-cf', $archivePath . '.tar', '.'],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+            );
+            if (!is_resource($process)) {
+                return new CommandResult(1, stderr: "Could not start tar to archive the build context.\n", data: ['operation' => 'build']);
+            }
+            $archiveOutput = stream_get_contents($pipes[1]);
+            $archiveError = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $archiveStatus = proc_close($process);
+            if ($archiveStatus !== 0) {
+                return new CommandResult($archiveStatus, (string) $archiveOutput, (string) $archiveError, ['operation' => 'build']);
+            }
+
+            $query = [
+                'dockerfile' => $dockerfile,
+                't' => $image->tag,
+                'nocache' => $image->noCache ? 'true' : 'false',
+                'rm' => 'true',
+            ];
+            if ($image->from !== null && $image->from !== '') {
+                $query['from'] = $image->from;
+            }
+
+            $stream = fopen($archivePath . '.tar', 'rb');
+            if ($stream === false) {
+                return new CommandResult(1, stderr: "Could not read the build archive.\n", data: ['operation' => 'build']);
+            }
+            try {
+                $response = $this->http->request('POST', $this->path('build'), [
+                    'query' => $query,
+                    'headers' => ['Content-Type' => 'application/x-tar'],
+                    'body' => $stream,
+                ]);
+            } catch (GuzzleException|Throwable $exception) {
+                return new CommandResult(1, stderr: $exception->getMessage() . "\n", data: ['operation' => 'build', 'image' => $image->tag]);
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+
+            $result = $this->responseResult($response);
+            $buildError = $this->buildError($result->stdout);
+            if ($result->succeeded() && $buildError !== null) {
+                return new CommandResult(1, $result->stdout, $buildError . "\n", [
+                    'operation' => 'build',
+                    'summary' => 'Image build failed',
+                    'image' => $image->tag,
+                    'from' => $image->from,
+                    'no_cache' => $image->noCache,
+                ]);
+            }
+            $summary = $result->succeeded() ? 'Image built' : 'Image build failed';
+            return new CommandResult($result->status, $result->stdout, $result->stderr, [
+                'operation' => 'build',
+                'summary' => $summary,
+                'image' => $image->tag,
+                'from' => $image->from,
+                'no_cache' => $image->noCache,
+            ]);
+        } catch (\Throwable $exception) {
+            return new CommandResult(1, stderr: $exception->getMessage() . "\n", data: ['operation' => 'build', 'image' => $image->tag]);
+        } finally {
+            if (is_file($archivePath . '.tar')) {
+                unlink($archivePath . '.tar');
+            }
+        }
     }
 
     public function create(ContainerDefinition $container): CommandResult
@@ -222,6 +321,21 @@ final class Podman implements ContainerManagerInterface
         $document = json_decode($body, true);
         $message = is_array($document) ? ($document['message'] ?? $document['cause'][0]['message'] ?? null) : null;
         return new CommandResult($status, '', (is_string($message) ? $message : trim($body ?: $response->getReasonPhrase())) . "\n", ['http_status' => $status]);
+    }
+
+    private function buildError(string $output): ?string
+    {
+        foreach (preg_split('/\r?\n/', $output) ?: [] as $line) {
+            $record = json_decode($line, true);
+            if (!is_array($record)) {
+                continue;
+            }
+            $message = $record['errorDetail']['message'] ?? $record['error'] ?? null;
+            if (is_string($message) && $message !== '') {
+                return $message;
+            }
+        }
+        return null;
     }
 
     private function negotiateApiVersion(): string

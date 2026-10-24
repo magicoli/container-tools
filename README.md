@@ -2,7 +2,7 @@
 
 A small PHP library for Podman container lifecycle operations, with a command adapter for shell callers.
 
-The first milestone covers image availability, container creation and startup, state inspection, readiness probes, command execution, stopping, and destruction. Container operations use Podman's official Docker-compatible REST API; Guzzle handles HTTP and cURL handles the Unix socket transport. Podman's configured SSH connection is used only to establish an SSH tunnel to its API socket.
+The first milestone covers image builds from a local Containerfile and build context, image availability, container creation and startup, state inspection, readiness probes, command execution, stopping, and destruction. Container operations use Podman's official Docker-compatible REST API; Guzzle handles HTTP and cURL handles the Unix socket transport. Podman's configured SSH connection is used only to establish an SSH tunnel to its API socket.
 
 The public API is under `Magicoli\ContainerTools\Container`: `ContainerManagerInterface` defines the driver contract, `ContainerDefinition` describes a container, and `Container\Driver\Podman` implements the contract. The command in `bin/` is a thin shell-facing adapter over that API.
 
@@ -35,6 +35,7 @@ Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. 
 
 ## Commands
 
+- `build --file FILE --tag IMAGE [--from BASE_IMAGE] [--no-cache] [CONTEXT]` builds and tags an image using a Containerfile. The context defaults to the Containerfile's directory. `--from` selects the base image for the first `FROM`; `--no-cache` disables layer cache for this build. Build and create remain separate operations: create accepts an image reference and never builds implicitly. The PHP host needs `tar` to package the context for the Podman API.
 - `status NAME` reports Podman's lifecycle state (`created`, `running`, `exited`, and so on).
 - `wait-ready NAME -- PROBE...` runs the probe repeatedly until it succeeds or times out. A running container is not necessarily ready to serve requests, so this is useful when a service needs startup time.
 - `start NAME` starts an existing stopped container; `stop NAME` stops a running container.
@@ -48,8 +49,15 @@ The library keeps the lifecycle operations explicit so PHP callers can decide wh
 ```php
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\Driver\Podman;
+use Magicoli\ContainerTools\Container\ImageBuildDefinition;
 
 $podman = new Podman(); // Honors CONTAINER_HOST or Podman's CONTAINER_CONNECTION.
+$podman->build(new ImageBuildDefinition(
+    file: __DIR__ . '/Containerfile',
+    tag: 'localhost/example:latest',
+    context: __DIR__,
+    from: 'docker.io/library/debian:12-slim',
+));
 $podman->pull('docker.io/library/nginx:alpine');
 $podman->create(new ContainerDefinition(name: 'example', image: 'docker.io/library/nginx:alpine'));
 $podman->start('example');
@@ -69,4 +77,4 @@ Alpine is suitable as a lightweight generic test image, but it is not yet a supp
 
 ## Tests
 
-`composer test` runs unit tests and real Podman integration tests. Podman and PHP with cURL are required; integration tests create uniquely named containers and remove them afterward. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--container-connection NAME` to select a configured Podman connection, and set `PODMAN_TEST_IMAGE` to override the integration image.
+`composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. Integration tests build `tests/Integration/image/Containerfile` as `localhost/container-tools-test:latest`, then create uniquely named containers and remove them afterward. The test image runs Caddy and OpenSSH and declares ports 22, 80, and 443; `EXPOSE` records container ports but does not publish them on the host. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--container-connection NAME` to select a configured Podman connection.

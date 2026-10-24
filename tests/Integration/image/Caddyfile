@@ -1,0 +1,8 @@
+:80 {
+	respond "container-tools test image"
+}
+
+:443 {
+	tls internal
+	respond "container-tools test image"
+}

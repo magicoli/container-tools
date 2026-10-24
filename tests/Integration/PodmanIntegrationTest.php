@@ -2,6 +2,7 @@
 
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\Driver\Podman;
+use Magicoli\ContainerTools\Container\ImageBuildDefinition;
 
 function integration_podman(): Podman
 {
@@ -17,7 +18,19 @@ function integration_name(string $caller): string
 
 function integration_image(): string
 {
-    return getenv('PODMAN_TEST_IMAGE') ?: getenv('CONTAINER_IMAGE') ?: 'docker.io/library/nginx:alpine';
+    return 'localhost/container-tools-test:latest';
+}
+
+function build_integration_image(Podman $podman): void
+{
+    $directory = __DIR__ . '/image';
+    $result = $podman->build(new ImageBuildDefinition(
+        $directory . '/Containerfile',
+        integration_image(),
+        $directory,
+        'docker.io/library/caddy:2-alpine',
+    ));
+    expect($result->status)->toBe(0, $result->stderr . $result->stdout);
 }
 
 describe('Podman integration', function () {
@@ -27,20 +40,21 @@ describe('Podman integration', function () {
         $created = false;
 
         try {
-            $pulled = $podman->pull(integration_image());
-            expect($pulled->status)->toBe(0, $pulled->stderr);
-            // Keep the image's default foreground server command, as a server
-            // container should live for as long as its service process does.
+            build_integration_image($podman);
             $result = $podman->create(new ContainerDefinition($name, integration_image(), ['test.caller' => 'php']));
             expect($result->status)->toBe(0, $result->stderr);
+            $created = true;
             expect($result->data['container']['name'])->toBe($name);
             expect($result->data['container']['id'])->toHaveLength(64);
             expect($result->data['container']['image'])->toBe(integration_image());
             expect($result->data['container']['api']['Config']['OpenStdin'])->toBeTrue();
             expect($result->data['container']['api']['Config']['Tty'])->toBeTrue();
-            $created = true;
+            expect(array_keys($result->data['container']['api']['Config']['ExposedPorts']))->toContain('22/tcp', '80/tcp', '443/tcp');
             expect($podman->start($name)->status)->toBe(0);
-            expect($podman->waitUntilReady($name, ['wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/'])->status)->toBe(0);
+            $probe = ['sh', '-c', 'wget -q -O /dev/null http://127.0.0.1/ && cat /proc/net/tcp /proc/net/tcp6 | grep -q ":0016 " && cat /proc/net/tcp /proc/net/tcp6 | grep -q ":0050 " && cat /proc/net/tcp /proc/net/tcp6 | grep -q ":01BB "'];
+            $ready = $podman->waitUntilReady($name, $probe);
+            expect($ready->status)->toBe(0, $ready->stderr . $ready->stdout);
+            expect(trim($podman->exec($name, ['wget', '-q', '-O', '-', 'http://127.0.0.1/'])->stdout))->toBe('container-tools test image');
             expect(trim($podman->status($name)->stdout))->toBe('running');
             expect(trim($podman->exec($name, ['hostname'])->stdout))->toBe($name);
             expect($podman->stop($name)->status)->toBe(0);
@@ -57,7 +71,8 @@ describe('Podman integration', function () {
         $name = integration_name('bash');
         $cli = dirname(__DIR__, 2) . '/bin/container-tools';
         $script = __DIR__ . '/podman-create-container.sh';
-        $process = proc_open(['bash', $script, $cli, $name, integration_image(), getenv('CONTAINER_CONNECTION') ?: ''], [
+        $imageDirectory = __DIR__ . '/image';
+        $process = proc_open(['bash', $script, $cli, $name, integration_image(), $imageDirectory . '/Containerfile', $imageDirectory, getenv('CONTAINER_CONNECTION') ?: ''], [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],

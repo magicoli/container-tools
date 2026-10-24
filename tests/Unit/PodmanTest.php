@@ -7,6 +7,7 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\Driver\Podman;
+use Magicoli\ContainerTools\Container\ImageBuildDefinition;
 
 function podman_api(array $responses, ?array &$history = null): Podman
 {
@@ -58,6 +59,64 @@ test('container creation uses the compatible REST endpoint and returns API inspe
         'Cmd' => ['php-fpm', '-F'],
         'HostConfig' => ['Memory' => 536870912],
     ]);
+});
+
+test('build uploads a Containerfile context to Podman and applies build options', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(),
+        new Response(200, [], "{\"stream\":\"Successfully tagged localhost/test-image:latest\\n\"}\n"),
+    ], $history);
+    $context = dirname(__DIR__) . '/Integration/image';
+
+    $result = $podman->build(new ImageBuildDefinition(
+        $context . '/Containerfile',
+        'localhost/test-image:latest',
+        $context,
+        'docker.io/library/debian:12-slim',
+        true,
+    ));
+
+    expect($result->status)->toBe(0);
+    expect($result->data)->toMatchArray([
+        'operation' => 'build',
+        'summary' => 'Image built',
+        'image' => 'localhost/test-image:latest',
+        'from' => 'docker.io/library/debian:12-slim',
+        'no_cache' => true,
+    ]);
+    expect((string) $history[1]['request']->getUri())->toContain('/v1.41/build?');
+    parse_str((string) $history[1]['request']->getUri()->getQuery(), $query);
+    expect($query)->toMatchArray([
+        'dockerfile' => 'Containerfile',
+        't' => 'localhost/test-image:latest',
+        'from' => 'docker.io/library/debian:12-slim',
+        'nocache' => 'true',
+    ]);
+    expect($history[1]['request']->getHeaderLine('Content-Type'))->toBe('application/x-tar');
+});
+
+test('build refuses a Containerfile outside its context', function () {
+    $podman = podman_api([api_version()]);
+    $context = dirname(__DIR__) . '/Integration/image';
+    $result = $podman->build(new ImageBuildDefinition(__FILE__, 'localhost/invalid:latest', $context));
+
+    expect($result->status)->toBe(2);
+    expect($result->stderr)->toContain('inside the build context');
+});
+
+test('build treats an error in the build event stream as a failure', function () {
+    $podman = podman_api([
+        api_version(),
+        new Response(200, [], "{\"stream\":\"Step 1/1\\n\"}\n{\"errorDetail\":{\"message\":\"package install failed\"},\"error\":\"package install failed\"}\n"),
+    ]);
+    $context = dirname(__DIR__) . '/Integration/image';
+
+    $result = $podman->build(new ImageBuildDefinition($context . '/Containerfile', 'localhost/broken:latest', $context));
+
+    expect($result->status)->toBe(1);
+    expect($result->stderr)->toContain('package install failed');
+    expect($result->data['summary'])->toBe('Image build failed');
 });
 
 test('container creation leaves the image command unchanged when no command was requested', function () {
