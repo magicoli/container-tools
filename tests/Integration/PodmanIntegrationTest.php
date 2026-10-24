@@ -5,7 +5,7 @@ use Magicoli\ContainerTools\Container\Driver\Podman;
 
 function integration_podman(): Podman
 {
-    return new Podman(getenv('PODMAN_BINARY') ?: 'podman', getenv('CONTAINER_REMOTE') ?: null);
+    return new Podman(getenv('PODMAN_BINARY') ?: 'podman', getenv('CONTAINER_CONNECTION') ?: null);
 }
 
 function integration_name(string $caller): string
@@ -17,7 +17,7 @@ function integration_name(string $caller): string
 
 function integration_image(): string
 {
-    return getenv('PODMAN_TEST_IMAGE') ?: 'docker.io/library/alpine:3.22';
+    return getenv('PODMAN_TEST_IMAGE') ?: getenv('CONTAINER_IMAGE') ?: ContainerDefinition::DEFAULT_IMAGE;
 }
 
 describe('Podman integration', function () {
@@ -36,10 +36,11 @@ describe('Podman integration', function () {
             $created = true;
             expect($podman->start($name)->status)->toBe(0);
             expect($podman->waitUntilReady($name, ['sh', '-c', 'test -r /etc/os-release'])->status)->toBe(0);
-            expect(trim($podman->running($name)->stdout))->toBe('true');
+            expect(trim($podman->status($name)->stdout))->toBe('running');
+            expect(trim($podman->exec($name, ['hostname'])->stdout))->toBe($name);
         } finally {
             if ($created) {
-                $podman->remove($name, true);
+                $podman->destroy($name);
             }
         }
     });
@@ -48,7 +49,7 @@ describe('Podman integration', function () {
         $name = integration_name('bash');
         $cli = dirname(__DIR__, 2) . '/bin/container-tools';
         $script = __DIR__ . '/podman-create-container.sh';
-        $process = proc_open(['bash', $script, $cli, $name, integration_image(), getenv('CONTAINER_REMOTE') ?: ''], [
+        $process = proc_open(['bash', $script, $cli, $name, integration_image(), getenv('CONTAINER_CONNECTION') ?: ''], [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],
@@ -62,6 +63,6 @@ describe('Podman integration', function () {
         $status = proc_close($process);
 
         expect($status)->toBe(0, $stderr);
-        expect(trim((string) $stdout))->toEndWith('true');
+        expect(trim((string) $stdout))->toEndWith('running');
     });
 });

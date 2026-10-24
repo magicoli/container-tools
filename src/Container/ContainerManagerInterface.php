@@ -16,11 +16,11 @@ interface ContainerManagerInterface
 
     public function inspect(string $name): CommandResult;
 
-    public function running(string $name): CommandResult;
+    public function status(string $name): CommandResult;
 
     public function waitUntilReady(string $name, array $probe, int $timeoutSeconds = 30, int $intervalMicroseconds = 250_000): CommandResult;
 
     public function exec(string $name, array $command, ?string $input = null): CommandResult;
 
-    public function remove(string $name, bool $force = false): CommandResult;
+    public function destroy(string $name): CommandResult;
 }

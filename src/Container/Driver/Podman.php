@@ -13,7 +13,7 @@ final class Podman implements ContainerManagerInterface
 {
     public function __construct(
         private readonly string $binary = 'podman',
-        private readonly ?string $remote = null,
+        private readonly ?string $connection = null,
     ) {}
 
     public function imageAvailable(string $image): bool
@@ -33,11 +33,18 @@ final class Podman implements ContainerManagerInterface
     public function create(ContainerDefinition $container): CommandResult
     {
         $name = $container->name;
-        if ($this->inspect($name)->succeeded()) {
+        if ($name !== null && $this->inspect($name)->succeeded()) {
             return new CommandResult(0, "Container already exists: $name\n");
         }
 
-        $arguments = ['create', '--name', $name];
+        $arguments = ['create'];
+        if ($name !== null) {
+            array_push($arguments, '--name', $name);
+        }
+        $hostname = $container->hostname ?? $name;
+        if ($hostname !== null) {
+            array_push($arguments, '--hostname', $hostname);
+        }
         foreach ($container->labels as $key => $value) {
             $arguments[] = '--label';
             $arguments[] = is_int($key) ? (string) $value : "$key=$value";
@@ -51,8 +58,8 @@ final class Podman implements ContainerManagerInterface
 
     public function start(string $name): CommandResult
     {
-        $running = $this->running($name);
-        if ($running->succeeded() && trim($running->stdout) === 'true') {
+        $status = $this->status($name);
+        if ($status->succeeded() && trim($status->stdout) === 'running') {
             return new CommandResult(0, "Container already running: $name\n");
         }
 
@@ -64,18 +71,18 @@ final class Podman implements ContainerManagerInterface
         return $this->run(['inspect', $name]);
     }
 
-    public function running(string $name): CommandResult
+    public function status(string $name): CommandResult
     {
         $inspection = $this->inspect($name);
         if (!$inspection->succeeded()) {
             return $inspection;
         }
         $container = json_decode($inspection->stdout, true);
-        if (!is_array($container) || !isset($container[0]['State']['Running'])) {
+        if (!is_array($container) || !isset($container[0]['State']['Status'])) {
             return new CommandResult(1, '', "Podman returned an invalid inspection document for $name\n");
         }
 
-        return new CommandResult(0, $container[0]['State']['Running'] ? "true\n" : "false\n");
+        return new CommandResult(0, $container[0]['State']['Status'] . "\n");
     }
 
     /** Run a probe until it succeeds or the readiness timeout expires. */
@@ -103,14 +110,14 @@ final class Podman implements ContainerManagerInterface
         return $this->run(['exec', ...($input === null ? [] : ['-i']), $name, ...$command], $input);
     }
 
-    public function remove(string $name, bool $force = false): CommandResult
+    public function destroy(string $name): CommandResult
     {
-        return $this->run(['rm', ...($force ? ['--force'] : []), $name]);
+        return $this->run(['rm', '--force', $name]);
     }
 
     public function run(array $arguments, ?string $input = null): CommandResult
     {
-        $process = @proc_open($this->command($arguments), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $process = @proc_open($this->command($arguments), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $this->environment());
         if (!is_resource($process)) {
             return new CommandResult(127, '', "Could not start {$this->binary}\n");
         }
@@ -155,11 +162,21 @@ final class Podman implements ContainerManagerInterface
 
     private function command(array $arguments): array
     {
-        $command = [$this->binary];
-        if ($this->remote !== null && $this->remote !== '') {
-            array_push($command, '--connection', $this->remote);
+        return [$this->binary, ...$arguments];
+    }
+
+    private function environment(): ?array
+    {
+        if ($this->connection === null || $this->connection === '') {
+            return null;
         }
 
-        return [...$command, ...$arguments];
+        $environment = getenv();
+        if (!is_array($environment)) {
+            $environment = [];
+        }
+        $environment['CONTAINER_CONNECTION'] = $this->connection;
+
+        return $environment;
     }
 }

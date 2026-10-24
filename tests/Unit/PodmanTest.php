@@ -11,7 +11,7 @@ function podman_stub(): string
     file_put_contents($binary, <<<'PHP'
 #!/usr/bin/env php
 <?php
-file_put_contents(__DIR__ . '/arguments.jsonl', json_encode(array_slice($argv, 1), JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
+file_put_contents(__DIR__ . '/arguments.jsonl', json_encode(['args' => array_slice($argv, 1), 'remote' => getenv('CONTAINER_CONNECTION') ?: null], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
 if (in_array('inspect', $argv, true)) {
     exit(1);
 } elseif (($argv[1] ?? '') === 'exec') {
@@ -25,23 +25,25 @@ PHP);
     return $binary;
 }
 
-test('Podman keeps arguments separate and applies the remote to every command', function () {
+test('Podman keeps arguments separate, sets the matching hostname, and uses the explicitly selected connection', function () {
     $binary = podman_stub();
     $directory = dirname($binary);
-    $podman = new Podman($binary, remote: 'hal');
+    $podman = new Podman($binary, connection: 'hal');
 
     $created = $podman->create(new ContainerDefinition('sample', 'alpine:3.22', ['test.caller' => 'unit'], null, ['sh', '-c', 'sleep 10']));
     expect($created->status)->toBe(0);
-    $calls = array_map('json_decode', file($directory . '/arguments.jsonl', FILE_IGNORE_NEW_LINES));
+    $calls = array_map(fn ($line) => json_decode($line, true), file($directory . '/arguments.jsonl', FILE_IGNORE_NEW_LINES));
     expect($calls[1])->toBe([
-        '--connection', 'hal', 'create', '--name', 'sample', '--label', 'test.caller=unit', 'alpine:3.22', 'sh', '-c', 'sleep 10',
+        'args' => ['create', '--name', 'sample', '--hostname', 'sample', '--label', 'test.caller=unit', 'alpine:3.22', 'sh', '-c', 'sleep 10'],
+        'remote' => 'hal',
     ]);
 
     $ready = $podman->waitUntilReady('sample', ['sh', '-c', 'true']);
     expect($ready->status)->toBe(0);
-    $calls = array_map('json_decode', file($directory . '/arguments.jsonl', FILE_IGNORE_NEW_LINES));
+    $calls = array_map(fn ($line) => json_decode($line, true), file($directory . '/arguments.jsonl', FILE_IGNORE_NEW_LINES));
     expect($calls[2])->toBe([
-        '--connection', 'hal', 'exec', 'sample', 'sh', '-c', 'true',
+        'args' => ['exec', 'sample', 'sh', '-c', 'true'],
+        'remote' => 'hal',
     ]);
 
     foreach (['arguments.jsonl', 'podman'] as $file) {
@@ -50,10 +52,36 @@ test('Podman keeps arguments separate and applies the remote to every command', 
     rmdir($directory);
 });
 
-test('a container definition requires a name and image but may use the image command', function () {
+test('a container definition has optional name and image defaults', function () {
     expect(fn() => new ContainerDefinition('', 'alpine:3.22', [], null, ['sh']))
         ->toThrow(InvalidArgumentException::class);
     expect(fn() => new ContainerDefinition('sample', ''))
         ->toThrow(InvalidArgumentException::class);
-    expect((new ContainerDefinition('sample', 'alpine:3.22'))->command)->toBe([]);
+    expect((new ContainerDefinition())->image)->toBe(ContainerDefinition::DEFAULT_IMAGE);
+    expect((new ContainerDefinition())->name)->toBeNull();
+    expect((new ContainerDefinition('sample'))->hostname)->toBeNull();
+});
+
+test('Podman honours the standard connection environment when no override is supplied', function () {
+    $binary = podman_stub();
+    $directory = dirname($binary);
+    $previous = getenv('CONTAINER_CONNECTION');
+    putenv('CONTAINER_CONNECTION=ursull');
+
+    try {
+        (new Podman($binary))->create(new ContainerDefinition('sample', 'alpine:3.22'));
+    } finally {
+        $previous === false ? putenv('CONTAINER_CONNECTION') : putenv('CONTAINER_CONNECTION=' . $previous);
+    }
+
+    $calls = array_map(fn ($line) => json_decode($line, true), file($directory . '/arguments.jsonl', FILE_IGNORE_NEW_LINES));
+    expect($calls[1])->toBe([
+        'args' => ['create', '--name', 'sample', '--hostname', 'sample', 'alpine:3.22'],
+        'remote' => 'ursull',
+    ]);
+
+    foreach (['arguments.jsonl', 'podman'] as $file) {
+        unlink($directory . '/' . $file);
+    }
+    rmdir($directory);
 });

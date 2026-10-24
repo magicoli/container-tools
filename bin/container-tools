@@ -17,12 +17,12 @@ fi
 CONTAINER_TOOLS_AUTOLOAD=$AUTOLOAD exec php -r '
 require getenv("CONTAINER_TOOLS_AUTOLOAD");
 $arguments = array_slice($argv, 1);
-$remote = getenv("CONTAINER_REMOTE") ?: null;
-if (($arguments[0] ?? "") === "--remote") {
+$connection = null;
+if (($arguments[0] ?? "") === "--connection") {
     array_shift($arguments);
-    $remote = array_shift($arguments) ?: null;
+    $connection = array_shift($arguments) ?: null;
 }
 $binary = getenv("PODMAN_BINARY") ?: "podman";
-$manager = new \Magicoli\ContainerTools\Container\Driver\Podman($binary, $remote);
+$manager = new \Magicoli\ContainerTools\Container\Driver\Podman($binary, $connection);
 exit((new \Magicoli\ContainerTools\Console\ContainerToolsCommand($manager))->run($arguments));
 ' -- "$@"
