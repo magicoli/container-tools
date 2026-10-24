@@ -2,7 +2,7 @@ FROM docker.io/library/caddy:2-alpine
 
 RUN apk add --no-cache openssh-server \
     && ssh-keygen -A \
-    && mkdir -p /run/sshd
+    && mkdir -p /run/sshd /var/empty
 
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY container-entrypoint /usr/local/bin/container-entrypoint

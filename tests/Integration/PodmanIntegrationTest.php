@@ -16,19 +16,19 @@ function integration_name(string $caller): string
     return 'container-tools-test-' . trim((string) $host, '-') . '-' . $caller . '-' . bin2hex(random_bytes(4));
 }
 
-function integration_image(): string
+function integration_image(string $platform): string
 {
-    return 'localhost/container-tools-test:latest';
+    return 'localhost/container-tools-test:' . $platform;
 }
 
-function build_integration_image(Podman $podman): void
+function build_integration_image(Podman $podman, string $platform): void
 {
-    $directory = __DIR__ . '/image';
+    $directory = dirname(__DIR__, 2) . '/examples/caddy';
     $result = $podman->build(new ImageBuildDefinition(
-        $directory . '/Containerfile',
-        integration_image(),
+        $directory . '/' . $platform . '/Containerfile',
+        integration_image($platform),
         $directory,
-        'docker.io/library/caddy:2-alpine',
+        $platform === 'alpine' ? 'docker.io/library/caddy:2-alpine' : null,
     ));
     expect($result->status)->toBe(0, $result->stderr . $result->stdout);
 }
@@ -40,13 +40,13 @@ describe('Podman integration', function () {
         $created = false;
 
         try {
-            build_integration_image($podman);
-            $result = $podman->create(new ContainerDefinition($name, integration_image(), ['test.caller' => 'php']));
+            build_integration_image($podman, 'debian12');
+            $result = $podman->create(new ContainerDefinition($name, integration_image('debian12'), ['test.caller' => 'php']));
             expect($result->status)->toBe(0, $result->stderr);
             $created = true;
             expect($result->data['container']['name'])->toBe($name);
             expect($result->data['container']['id'])->toHaveLength(64);
-            expect($result->data['container']['image'])->toBe(integration_image());
+            expect($result->data['container']['image'])->toBe(integration_image('debian12'));
             expect($result->data['container']['api']['Config']['OpenStdin'])->toBeTrue();
             expect($result->data['container']['api']['Config']['Tty'])->toBeTrue();
             expect(array_keys($result->data['container']['api']['Config']['ExposedPorts']))->toContain('22/tcp', '80/tcp', '443/tcp');
@@ -71,8 +71,8 @@ describe('Podman integration', function () {
         $name = integration_name('bash');
         $cli = dirname(__DIR__, 2) . '/bin/container-tools';
         $script = __DIR__ . '/podman-create-container.sh';
-        $imageDirectory = __DIR__ . '/image';
-        $process = proc_open(['bash', $script, $cli, $name, integration_image(), $imageDirectory . '/Containerfile', $imageDirectory, getenv('CONTAINER_CONNECTION') ?: ''], [
+        $imageDirectory = dirname(__DIR__, 2) . '/examples/caddy';
+        $process = proc_open(['bash', $script, $cli, $name, integration_image('alpine'), $imageDirectory . '/alpine/Containerfile', $imageDirectory, getenv('CONTAINER_CONNECTION') ?: ''], [
             0 => ['pipe', 'r'],
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],

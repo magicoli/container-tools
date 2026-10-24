@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-build_output=$(run_cli build --file="$containerfile" --from=docker.io/library/caddy:2-alpine --tag="$image" "$context")
+build_output=$(run_cli build --file="$containerfile" --tag="$image" "$context")
 grep -q 'Image: ' <<<"$build_output"
 create_output=$(run_cli create --name="$name" --image="$image" --label='test.caller=bash')
 printf '%s\n' "$create_output"

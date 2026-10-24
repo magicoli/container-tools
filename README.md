@@ -71,10 +71,22 @@ $podman->destroy('example');
 
 `bin/container-tools` is a Bash wrapper around the PSR-4 command in `src/Console`. `--container-connection NAME` and `--container-connection=NAME` select a configured Podman connection; otherwise the standard Podman `CONTAINER_CONNECTION` setting is inherited. `CONTAINER_HOST` can point directly to a Unix socket or HTTP endpoint.
 
-## Alpine and OpenSim
+## Build and run a test image
 
-Alpine is suitable as a lightweight generic test image, but it is not yet a supported OpenSim installation target. Microsoft currently lists .NET 8, 9, and 10 on Alpine 3.21–3.23, and Alpine provides `libgdiplus`; however, OpenSimulator's own Linux instructions name the .NET runtime and `libgdiplus` without documenting Alpine. This project currently installs OpenSim through Debian packages and APT. Alpine would need a separate installation path and end-to-end validation before it could be called supported.
+The integration fixtures include Caddy and OpenSSH variants based on Debian 12 and Alpine. Build the Debian 12 variant, then create and inspect a container from it:
+
+```bash
+./bin/container-tools build \
+  --file=examples/caddy/debian12/Containerfile \
+  --tag=localhost/caddy-sshd:debian12 \
+  examples/caddy
+./bin/container-tools create --name=debian-caddy --image=localhost/caddy-sshd:debian12
+./bin/container-tools status debian-caddy
+./bin/container-tools wait-ready debian-caddy -- wget -q -O /dev/null http://127.0.0.1/
+```
+
+The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples share the Caddyfile and entrypoint in `examples/caddy/`. `EXPOSE` records the ports inside the image; it does not publish ports on the host.
 
 ## Tests
 
-`composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. Integration tests build `tests/Integration/image/Containerfile` as `localhost/container-tools-test:latest`, then create uniquely named containers and remove them afterward. The test image runs Caddy and OpenSSH and declares ports 22, 80, and 443; `EXPOSE` records container ports but does not publish them on the host. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--container-connection NAME` to select a configured Podman connection.
+`composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, creates uniquely named containers, exercises their lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--container-connection NAME` to select a configured Podman connection.

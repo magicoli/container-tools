@@ -67,10 +67,10 @@ test('build uploads a Containerfile context to Podman and applies build options'
         api_version(),
         new Response(200, [], "{\"stream\":\"Successfully tagged localhost/test-image:latest\\n\"}\n"),
     ], $history);
-    $context = dirname(__DIR__) . '/Integration/image';
+    $context = dirname(__DIR__, 2) . '/examples/caddy';
 
     $result = $podman->build(new ImageBuildDefinition(
-        $context . '/Containerfile',
+        $context . '/alpine/Containerfile',
         'localhost/test-image:latest',
         $context,
         'docker.io/library/debian:12-slim',
@@ -88,7 +88,7 @@ test('build uploads a Containerfile context to Podman and applies build options'
     expect((string) $history[1]['request']->getUri())->toContain('/v1.41/build?');
     parse_str((string) $history[1]['request']->getUri()->getQuery(), $query);
     expect($query)->toMatchArray([
-        'dockerfile' => 'Containerfile',
+        'dockerfile' => 'alpine/Containerfile',
         't' => 'localhost/test-image:latest',
         'from' => 'docker.io/library/debian:12-slim',
         'nocache' => 'true',
@@ -98,7 +98,7 @@ test('build uploads a Containerfile context to Podman and applies build options'
 
 test('build refuses a Containerfile outside its context', function () {
     $podman = podman_api([api_version()]);
-    $context = dirname(__DIR__) . '/Integration/image';
+    $context = dirname(__DIR__, 2) . '/examples/caddy';
     $result = $podman->build(new ImageBuildDefinition(__FILE__, 'localhost/invalid:latest', $context));
 
     expect($result->status)->toBe(2);
@@ -110,9 +110,9 @@ test('build treats an error in the build event stream as a failure', function ()
         api_version(),
         new Response(200, [], "{\"stream\":\"Step 1/1\\n\"}\n{\"errorDetail\":{\"message\":\"package install failed\"},\"error\":\"package install failed\"}\n"),
     ]);
-    $context = dirname(__DIR__) . '/Integration/image';
+    $context = dirname(__DIR__, 2) . '/examples/caddy';
 
-    $result = $podman->build(new ImageBuildDefinition($context . '/Containerfile', 'localhost/broken:latest', $context));
+    $result = $podman->build(new ImageBuildDefinition($context . '/alpine/Containerfile', 'localhost/broken:latest', $context));
 
     expect($result->status)->toBe(1);
     expect($result->stderr)->toContain('package install failed');
