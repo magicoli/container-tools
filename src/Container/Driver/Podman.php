@@ -58,6 +58,15 @@ final class Podman implements ContainerManagerInterface
 
     public function create(ContainerDefinition $container): CommandResult
     {
+        $image = $this->pull($container->image);
+        if (!$image->succeeded()) {
+            return $image->withData([
+                'operation' => 'create',
+                'summary' => 'Container creation failed because its image could not be obtained',
+                'requested' => $this->requestedDefinition($container),
+            ]);
+        }
+
         $query = $container->name === null ? '' : '?name=' . rawurlencode($container->name);
         $config = ['Image' => $container->image];
         $hostname = $container->hostname ?? $container->name;
@@ -93,6 +102,7 @@ final class Podman implements ContainerManagerInterface
             'summary' => 'Container created',
             'container' => $inspection->data['container'],
             'requested' => $this->requestedDefinition($container),
+            'image_pulled' => $image->data['pulled'] ?? false,
         ]);
     }
 

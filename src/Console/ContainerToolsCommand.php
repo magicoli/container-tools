@@ -14,6 +14,11 @@ final class ContainerToolsCommand
 
     public function run(array $arguments): int
     {
+        $verbose = ($arguments[0] ?? null) === '--verbose';
+        if ($verbose) {
+            array_shift($arguments);
+        }
+
         if (in_array($arguments[0] ?? '', ['--help', '-h'], true)) {
             fwrite(STDOUT, self::usage());
             return 0;
@@ -36,7 +41,7 @@ final class ContainerToolsCommand
             fwrite(STDERR, self::usage());
             return 2;
         }
-        fwrite(STDOUT, $this->render($result));
+        fwrite(STDOUT, $this->render($result, $verbose));
         fwrite(STDERR, $result->stderr);
 
         return $result->status;
@@ -44,7 +49,7 @@ final class ContainerToolsCommand
 
     private static function usage(): string
     {
-        return "usage: container-tools [--container-connection NAME] image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
+        return "usage: container-tools [--verbose] [--container-connection NAME] image-pull IMAGE | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
     }
 
     private function create(array $arguments): ?CommandResult
@@ -129,7 +134,7 @@ final class ContainerToolsCommand
         return $this->manager->exec($name, $arguments);
     }
 
-    private function render(CommandResult $result): string
+    private function render(CommandResult $result, bool $verbose = false): string
     {
         if ($result->data === []) {
             return $result->stdout;
@@ -141,6 +146,12 @@ final class ContainerToolsCommand
         }
         foreach (($result->data['container'] ?? []) as $key => $value) {
             if ($value === null || $value === '') {
+                continue;
+            }
+            if ($key === 'api') {
+                if ($verbose) {
+                    $lines[] = "API inspection:\n" . json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                }
                 continue;
             }
             $label = match ($key) {
@@ -155,7 +166,7 @@ final class ContainerToolsCommand
             };
             $lines[] = "$label: " . (is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_SLASHES));
         }
-        foreach (['image' => 'Image', 'pulled' => 'Pulled', 'elapsed_seconds' => 'Elapsed seconds', 'exit_code' => 'Exit code'] as $key => $label) {
+        foreach (['image' => 'Image', 'pulled' => 'Pulled', 'image_pulled' => 'Image pulled', 'elapsed_seconds' => 'Elapsed seconds', 'exit_code' => 'Exit code'] as $key => $label) {
             if (array_key_exists($key, $result->data) && $result->data[$key] !== null) {
                 $lines[] = "$label: " . (is_bool($result->data[$key]) ? ($result->data[$key] ? 'yes' : 'no') : (string) $result->data[$key]);
             }

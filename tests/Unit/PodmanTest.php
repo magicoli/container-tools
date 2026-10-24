@@ -37,6 +37,7 @@ test('container creation uses the compatible REST endpoint and returns API inspe
     $history = [];
     $podman = podman_api([
         api_version(),
+        new Response(200, [], '{"Id":"image-id"}'),
         new Response(201, [], json_encode(['Id' => str_repeat('a', 64)], JSON_THROW_ON_ERROR)),
         container_inspection(),
     ], $history);
@@ -46,8 +47,8 @@ test('container creation uses the compatible REST endpoint and returns API inspe
     expect($result->status)->toBe(0);
     expect($result->data['container'])->toMatchArray(['id' => str_repeat('a', 64), 'name' => 'sample', 'image' => 'alpine:3.24', 'hostname' => 'sample', 'status' => 'created']);
     expect($result->data['container']['api']['Config']['Cmd'])->toBe(['php-fpm', '-F']);
-    expect((string) $history[1]['request']->getUri())->toContain('/v1.41/containers/create?name=sample');
-    $body = json_decode((string) $history[1]['request']->getBody(), true);
+    expect((string) $history[2]['request']->getUri())->toContain('/v1.41/containers/create?name=sample');
+    $body = json_decode((string) $history[2]['request']->getBody(), true);
     expect($body)->toMatchArray([
         'Image' => 'alpine:3.24',
         'Hostname' => 'sample',
@@ -61,14 +62,39 @@ test('container creation leaves the image command unchanged when no command was 
     $history = [];
     $podman = podman_api([
         api_version(),
+        new Response(200, [], '{"Id":"image-id"}'),
         new Response(201, [], json_encode(['Id' => str_repeat('a', 64)], JSON_THROW_ON_ERROR)),
         container_inspection(),
     ], $history);
 
     expect($podman->create(new ContainerDefinition('sample', 'alpine:3.24'))->status)->toBe(0);
-    $body = json_decode((string) $history[1]['request']->getBody(), true);
+    $body = json_decode((string) $history[2]['request']->getBody(), true);
     expect($body)->not->toHaveKey('Cmd');
     expect($body)->not->toHaveKey('Entrypoint');
+});
+
+test('container creation pulls an image that is not available yet', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(),
+        new Response(404, [], '{"message":"no such image"}'),
+        new Response(200, [], "{\"status\":\"Pulling from library/debian\"}\n{\"status\":\"Download complete\"}\n"),
+        new Response(201, [], json_encode(['Id' => str_repeat('b', 64)], JSON_THROW_ON_ERROR)),
+        new Response(200, [], json_encode([
+            'Id' => str_repeat('b', 64),
+            'Name' => '/sample',
+            'Config' => ['Hostname' => 'sample', 'Image' => 'docker.io/library/debian:12-slim', 'Cmd' => ['bash']],
+            'State' => ['Status' => 'created'],
+        ], JSON_THROW_ON_ERROR)),
+    ], $history);
+
+    $result = $podman->create(new ContainerDefinition('sample', 'docker.io/library/debian:12-slim'));
+
+    expect($result->status)->toBe(0);
+    expect($result->data['image_pulled'])->toBeTrue();
+    expect((string) $history[2]['request']->getUri())->toContain('/images/create?fromImage=docker.io%2Flibrary%2Fdebian%3A12-slim');
+    $body = json_decode((string) $history[3]['request']->getBody(), true);
+    expect($body)->toBe(['Image' => 'docker.io/library/debian:12-slim', 'Hostname' => 'sample']);
 });
 
 test('start and stop use REST lifecycle operations and return the resulting state', function () {

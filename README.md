@@ -10,7 +10,7 @@ Each operation returns a `CommandResult` with `status`, `stdout`, `stderr`, and 
 
 ## Quick start
 
-The image and name are optional. The default image is Alpine 3.24. The CLI starts the container and leaves the image's configured command untouched. To run a server, use an image whose default command starts that service in the foreground. For example, Nginx remains active while its server process runs:
+The image and name are optional. The default image is Alpine 3.24. The CLI pulls the image if it is missing, then starts the container without replacing the image's configured command. A container remains active only while that command remains active: a minimal Alpine or Debian image may exit, while an Nginx image runs its server in the foreground:
 
 ```bash
 ./bin/container-tools image-pull docker.io/library/nginx:alpine
@@ -20,6 +20,8 @@ The image and name are optional. The default image is Alpine 3.24. The CLI start
 ./bin/container-tools stop example
 ./bin/container-tools destroy example
 ```
+
+Use `--verbose` before a command to print the complete, formatted REST inspection document. The default output contains only the concise summary and key container fields.
 
 Podman assigns a readable random name if `--name` is omitted; the result includes that final name and both full and short IDs. When a name is provided, the container's hostname defaults to that name. `--hostname HOSTNAME` overrides it. For an automatically assigned name, Podman chooses its hostname at creation time, so the hostname may be the container ID rather than the friendly name.
 
