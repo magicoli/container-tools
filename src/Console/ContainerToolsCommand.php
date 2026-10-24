@@ -19,10 +19,21 @@ final class ContainerToolsCommand
 
     public function run(array $arguments): int
     {
+        if (($arguments[0] ?? null) === 'help') {
+            $topic = $arguments[1] ?? null;
+            if ($topic !== null && !in_array($topic, ['image-pull', 'build', 'create', 'network', 'start', 'stop', 'status', 'wait-ready', 'exec', 'destroy'], true)) {
+                fwrite(STDERR, "container-tools: unknown help topic '$topic'\n");
+                return 2;
+            }
+            fwrite(STDOUT, self::usage($topic));
+            return 0;
+        }
+
         [$arguments, $verbose, $quiet, $dryRun, $help] = $this->globalOptions($arguments);
 
         if ($help || in_array($arguments[0] ?? '', ['--help', '-h'], true)) {
-            fwrite(STDOUT, self::usage());
+            $topic = isset($arguments[0]) && !str_starts_with($arguments[0], '-') ? $arguments[0] : null;
+            fwrite(STDOUT, self::usage($topic));
             return 0;
         }
 
@@ -71,9 +82,145 @@ final class ContainerToolsCommand
         return $result->status;
     }
 
-    private static function usage(): string
+    private static function usage(?string $topic = null): string
     {
-        return "usage: container-tools [-v|--verbose] [-q|--quiet] [-h|--help] [-d|--dry-run] [--container-connection NAME] image-pull IMAGE | build --file FILE --tag IMAGE [--from BASE_IMAGE] [--no-cache] [CONTEXT] | network create --name NAME [--driver bridge|macvlan|ipvlan] [--parent IFACE] [--ipam host-local|dhcp|none] [--ipv4-subnet CIDR] [--ipv4-gateway IP] [--ipv6-subnet CIDR] [--ipv6-gateway IP] [--ipv6] | network inspect|destroy NAME | create [--name NAME] [--image IMAGE] [--hostname HOSTNAME] [--memory SIZE] [--label KEY=VALUE ...] [--publish [HOST_PORT:]CONTAINER_PORT[/tcp|udp]] [--network NAME [--ip4 IP] [--ip6 IP]] [--no-start] [-- COMMAND...] | start NAME | stop NAME | status NAME | wait-ready NAME -- PROBE... | exec NAME -- COMMAND... | destroy NAME\n";
+        if ($topic !== null) {
+            $help = match ($topic) {
+                'image-pull' => <<<'HELP'
+usage: container-tools image-pull IMAGE
+
+Download an image to the selected Podman engine. Container creation also pulls
+the image automatically when it is not already available.
+HELP,
+                'build' => <<<'HELP'
+usage: container-tools build --file FILE --tag IMAGE [options] [CONTEXT]
+
+Build and tag an image from a Containerfile. CONTEXT defaults to the directory
+containing FILE. Build and create are separate operations; create never builds.
+
+Options:
+      --from IMAGE     Override the first FROM image
+      --no-cache       Do not reuse cached build layers
+
+Example:
+  container-tools build --file examples/caddy/debian12/Containerfile \
+    --tag localhost/caddy:debian12 examples/caddy
+HELP,
+                'create' => <<<'HELP'
+usage: container-tools create [options] [-- COMMAND...]
+
+Create and start a container. If NAME is omitted, Podman assigns a readable
+name. If IMAGE is missing locally, it is pulled first. Without COMMAND, the
+image's configured command and entrypoint are used.
+
+Options:
+      --name NAME       Container name (Podman chooses one if omitted)
+      --image IMAGE     Image to use (default: Alpine 3.24)
+      --hostname NAME   Hostname (defaults to the container name)
+      --memory SIZE     Memory limit
+      --label KEY=VALUE Add a label (repeatable)
+      --publish MAPPING Publish one or more host ports (repeatable)
+      --network NAME    Attach directly to a named network
+      --ip4 ADDRESS     Request a fixed IPv4 address on that network
+      --ip6 ADDRESS     Request a fixed IPv6 address on that network
+      --no-start        Create the container without starting it
+      -- COMMAND...     Override the image command
+
+Port mappings may be comma-separated in one --publish value or supplied by
+repeating --publish. Use HOST_PORT:CONTAINER_PORT to choose a host port,
+CONTAINER_PORT to let Podman choose a host port, or :CONTAINER_PORT to make
+that automatic assignment explicit. Prefix HOST_IP: to bind only that host
+address; bracket IPv6 addresses, for example [::1]:8080:80. An unqualified
+range such as 8002-8100 maps the same range on both sides;
+HOST_RANGE:CONTAINER_RANGE maps equal-sized ranges. Add /udp for UDP. Podman
+chooses an available ephemeral host port; it does not first try the container
+port or search from port 8000.
+
+Examples:
+  container-tools create --image nginx:alpine --publish 8080:80
+  container-tools create --publish 8080:80,8022:22,8443:443
+  container-tools create --publish 8002-8100,9000-9100
+  container-tools create --publish :8002-8100
+HELP,
+                'network' => <<<'HELP'
+usage: container-tools network <create|inspect|destroy> [options]
+
+Create or manage a Podman network. IPAM means IP address management: it
+selects how addresses are assigned. host-local assigns from the configured
+subnet, dhcp requests a DHCP lease, and none leaves address assignment to
+another mechanism.
+
+Create options:
+      --name NAME          Network name
+      --driver DRIVER      bridge (default), macvlan, or ipvlan
+      --parent IFACE       Parent interface for macvlan/ipvlan; defaults to
+                           Podman's default route interface when omitted
+      --ipam DRIVER        host-local (default), dhcp, or none
+      --ipv4-subnet CIDR   IPv4 subnet for fixed addresses
+      --ipv4-gateway IP    IPv4 gateway
+      --ipv6-subnet CIDR   IPv6 subnet for fixed addresses
+      --ipv6-gateway IP    IPv6 gateway
+      --ipv6               Enable IPv6
+
+Examples:
+  container-tools network create --name lan --driver macvlan --ipam dhcp
+  container-tools network create --name fixed --driver macvlan \
+    --ipv4-subnet 192.168.1.0/24 --ipv4-gateway 192.168.1.1
+  container-tools network inspect lan
+  container-tools network destroy lan
+
+macvlan and ipvlan require host-interface access and do not support published
+host ports. DHCP networks require the Podman host's DHCP integration to be
+configured.
+HELP,
+                'start' => "usage: container-tools start NAME\n\nStart a stopped container and report its state.",
+                'stop' => "usage: container-tools stop NAME\n\nStop a running container.",
+                'status' => "usage: container-tools status NAME\n\nShow lifecycle state, published ports, and network addresses.",
+                'wait-ready' => "usage: container-tools wait-ready NAME -- PROBE...\n\nRepeat PROBE in the container until it succeeds or the readiness timeout expires.",
+                'exec' => "usage: container-tools exec NAME -- COMMAND...\n\nRun COMMAND inside a running container.",
+                'destroy' => "usage: container-tools destroy NAME\n\nStop and remove a container.",
+                default => null,
+            };
+            return $help === null ? self::usage() : $help . "\n";
+        }
+
+        return <<<'HELP'
+usage: container-tools [-hvqd] <command> [options]
+
+Type 'container-tools <command> --help' or 'container-tools help <command>'
+for details on a command.
+
+Images
+    image-pull IMAGE
+    build --file FILE --tag IMAGE [--from IMAGE] [--no-cache] [CONTEXT]
+
+Containers
+    create [options] [-- COMMAND...]
+    start NAME
+    stop NAME
+    status NAME
+    wait-ready NAME -- PROBE...
+    exec NAME -- COMMAND...
+    destroy NAME
+
+Networks
+    network create --name NAME [options]
+    network inspect NAME
+    network destroy NAME
+
+Container networking
+    --publish MAPPING    Publish host ports; repeatable or comma-separated
+    --network NAME       Attach to a named network
+    --ip4 ADDRESS        Request a fixed IPv4 address
+    --ip6 ADDRESS        Request a fixed IPv6 address
+
+Global options
+    -h|--help                   Display this help
+    -v|--verbose                Show full Podman API details
+    -q|--quiet                  Suppress normal output
+    -d|--dry-run                Show the action without running it
+       --container-connection NAME  Use a configured Podman connection
+HELP . "\n";
     }
 
     /** @return array{array, bool, bool, bool, bool} */
@@ -190,7 +337,7 @@ final class ContainerToolsCommand
                 '--hostname' => $hostname = $value,
                 '--memory' => $memory = $value,
                 '--label' => $labels[] = $value,
-                '--publish' => $portForwards[] = PortForward::parse($value),
+                '--publish' => array_push($portForwards, ...PortForward::parseList($value)),
                 '--network' => $networkName = $value,
                 '--ip4' => $ipv4 = $value,
                 '--ip6' => $ipv6 = $value,

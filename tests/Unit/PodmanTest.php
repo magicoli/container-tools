@@ -305,3 +305,25 @@ test('port mapping parser accepts fixed and automatic host ports', function () {
     expect($automatic->containerPort)->toBe(53);
     expect($automatic->protocol())->toBe('udp');
 });
+
+test('port mapping parser expands lists and equal-sized ranges', function () {
+    $list = PortForward::parseList('8080:80,8022:22,8443:443');
+    expect(array_map(static fn (PortForward $forward) => [$forward->hostPort, $forward->containerPort], $list))
+        ->toBe([[8080, 80], [8022, 22], [8443, 443]]);
+
+    $ranges = PortForward::parseList('8002-8100,9000-9100');
+    expect($ranges)->toHaveCount(200);
+    expect([$ranges[0]->hostPort, $ranges[0]->containerPort])->toBe([8002, 8002]);
+    expect([$ranges[98]->hostPort, $ranges[98]->containerPort])->toBe([8100, 8100]);
+    expect([$ranges[99]->hostPort, $ranges[99]->containerPort])->toBe([9000, 9000]);
+    expect([$ranges[199]->hostPort, $ranges[199]->containerPort])->toBe([9100, 9100]);
+
+    $automatic = PortForward::parseList(':80-82');
+    expect(array_map(static fn (PortForward $forward) => [$forward->hostPort, $forward->containerPort], $automatic))
+        ->toBe([[null, 80], [null, 81], [null, 82]]);
+    expect(PortForward::parse('[::1]:8080:80')->hostIp)->toBe('::1');
+});
+
+test('port mapping parser rejects mismatched port ranges', function () {
+    expect(fn () => PortForward::parseList('8080-8082:80-81'))->toThrow(InvalidArgumentException::class);
+});

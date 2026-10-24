@@ -47,6 +47,8 @@ Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. 
 
 Choose between ordinary host-port publishing and a direct address on a network. A container cannot combine published ports with `macvlan` or `ipvlan`; those drivers do not implement port forwarding.
 
+`IPAM` means IP address management: it selects how addresses are assigned to a Podman network. `host-local` assigns addresses from the configured subnet, `dhcp` asks a DHCP server, and `none` leaves address assignment to another mechanism.
+
 ### Host port forwarding
 
 Publish a container service on a host port. The host and container ports can differ, or Podman can choose an unused host port:
@@ -59,7 +61,18 @@ curl http://127.0.0.1:8080/
 ./bin/container-tools destroy web
 ```
 
-Repeat `--publish` for each service; add `/udp` for UDP ports. `--publish 53/udp` requests an automatically chosen host port. The result reports the effective host-to-container mappings.
+Repeat `--publish` or separate entries with commas. Add `/udp` for UDP ports. `--publish 53/udp` requests an automatically chosen host port. Podman chooses an available host port from its ephemeral port range; it does not try port 53 first or start searching at 8000. The result reports the effective host-to-container mappings.
+
+Ranges are expanded into individual mappings. A range without a colon uses the same port numbers on the host and in the container; with host and container ranges, their lengths must match:
+
+```bash
+./bin/container-tools create --name services --image docker.io/library/alpine:3.24 \
+  --publish=8080:80,8022:22,8443:443
+./bin/container-tools create --name opensim-ports --image docker.io/library/alpine:3.24 \
+  --publish=8002-8100,9000-9100
+./bin/container-tools create --name random-ports --image docker.io/library/alpine:3.24 \
+  --publish=:8002-8100
+```
 
 ### Direct address from DHCP
 
