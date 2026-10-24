@@ -52,6 +52,8 @@ test('container creation uses the compatible REST endpoint and returns API inspe
     expect($body)->toMatchArray([
         'Image' => 'alpine:3.24',
         'Hostname' => 'sample',
+        'OpenStdin' => true,
+        'Tty' => true,
         'Labels' => ['test.caller' => 'unit'],
         'Cmd' => ['php-fpm', '-F'],
         'HostConfig' => ['Memory' => 536870912],
@@ -71,6 +73,7 @@ test('container creation leaves the image command unchanged when no command was 
     $body = json_decode((string) $history[2]['request']->getBody(), true);
     expect($body)->not->toHaveKey('Cmd');
     expect($body)->not->toHaveKey('Entrypoint');
+    expect($body)->toMatchArray(['OpenStdin' => true, 'Tty' => true]);
 });
 
 test('container creation pulls an image that is not available yet', function () {
@@ -94,7 +97,7 @@ test('container creation pulls an image that is not available yet', function () 
     expect($result->data['image_pulled'])->toBeTrue();
     expect((string) $history[2]['request']->getUri())->toContain('/images/create?fromImage=docker.io%2Flibrary%2Fdebian%3A12-slim');
     $body = json_decode((string) $history[3]['request']->getBody(), true);
-    expect($body)->toBe(['Image' => 'docker.io/library/debian:12-slim', 'Hostname' => 'sample']);
+    expect($body)->toBe(['Image' => 'docker.io/library/debian:12-slim', 'OpenStdin' => true, 'Tty' => true, 'Hostname' => 'sample']);
 });
 
 test('start and stop use REST lifecycle operations and return the resulting state', function () {

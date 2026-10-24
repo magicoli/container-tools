@@ -36,6 +36,8 @@ describe('Podman integration', function () {
             expect($result->data['container']['name'])->toBe($name);
             expect($result->data['container']['id'])->toHaveLength(64);
             expect($result->data['container']['image'])->toBe(integration_image());
+            expect($result->data['container']['api']['Config']['OpenStdin'])->toBeTrue();
+            expect($result->data['container']['api']['Config']['Tty'])->toBeTrue();
             $created = true;
             expect($podman->start($name)->status)->toBe(0);
             expect($podman->waitUntilReady($name, ['wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/'])->status)->toBe(0);

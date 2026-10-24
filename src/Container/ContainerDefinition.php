@@ -17,6 +17,8 @@ final readonly class ContainerDefinition
         public ?string $memory = null,
         public array $command = [],
         public ?string $hostname = null,
+        public bool $openStdin = true,
+        public bool $tty = true,
     ) {
         if ($name === '') {
             throw new InvalidArgumentException('A container name cannot be empty.');

@@ -161,10 +161,13 @@ final class ContainerToolsCommand
                 'image' => 'Image',
                 'hostname' => 'Hostname',
                 'status' => 'Status',
+                'open_stdin' => 'Open stdin',
+                'tty' => 'TTY',
                 'reference' => 'Reference',
                 default => ucfirst(str_replace('_', ' ', $key)),
             };
-            $lines[] = "$label: " . (is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_SLASHES));
+            $display = is_bool($value) ? ($value ? 'yes' : 'no') : (is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_SLASHES));
+            $lines[] = "$label: $display";
         }
         foreach (['image' => 'Image', 'pulled' => 'Pulled', 'image_pulled' => 'Image pulled', 'elapsed_seconds' => 'Elapsed seconds', 'exit_code' => 'Exit code'] as $key => $label) {
             if (array_key_exists($key, $result->data) && $result->data[$key] !== null) {

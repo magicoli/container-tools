@@ -12,6 +12,8 @@ Each operation returns a `CommandResult` with `status`, `stdout`, `stderr`, and 
 
 The image and name are optional. The default image is Alpine 3.24. The CLI pulls the image if it is missing, then starts the container without replacing the image's configured command. A container remains active only while that command remains active: a minimal Alpine or Debian image may exit, while an Nginx image runs its server in the foreground:
 
+Creation defaults to keeping stdin open and allocating a TTY, matching Podman Desktop's defaults. This allows images whose default command is an interactive shell, such as Debian's `bash`, to remain running after the create request returns.
+
 ```bash
 ./bin/container-tools image-pull docker.io/library/nginx:alpine
 ./bin/container-tools create --name example --image docker.io/library/nginx:alpine

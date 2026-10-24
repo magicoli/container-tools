@@ -68,7 +68,11 @@ final class Podman implements ContainerManagerInterface
         }
 
         $query = $container->name === null ? '' : '?name=' . rawurlencode($container->name);
-        $config = ['Image' => $container->image];
+        $config = [
+            'Image' => $container->image,
+            'OpenStdin' => $container->openStdin,
+            'Tty' => $container->tty,
+        ];
         $hostname = $container->hostname ?? $container->name;
         if ($hostname !== null) {
             $config['Hostname'] = $hostname;
@@ -268,13 +272,15 @@ final class Podman implements ContainerManagerInterface
             'image' => $container['Config']['Image'] ?? null,
             'hostname' => $container['Config']['Hostname'] ?? null,
             'status' => $container['State']['Status'] ?? null,
+            'open_stdin' => $container['Config']['OpenStdin'] ?? null,
+            'tty' => $container['Config']['Tty'] ?? null,
             'api' => $container,
         ];
     }
 
     private function requestedDefinition(ContainerDefinition $container): array
     {
-        return ['name' => $container->name, 'image' => $container->image, 'hostname' => $container->hostname ?? $container->name, 'labels' => $container->labels, 'memory' => $container->memory, 'command' => $container->command];
+        return ['name' => $container->name, 'image' => $container->image, 'hostname' => $container->hostname ?? $container->name, 'labels' => $container->labels, 'memory' => $container->memory, 'command' => $container->command, 'open_stdin' => $container->openStdin, 'tty' => $container->tty];
     }
 
     private function memoryBytes(string $memory): int
