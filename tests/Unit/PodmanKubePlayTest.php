@@ -22,7 +22,7 @@ SH);
 function with_fake_podman_environment(string $binary, string $directory, callable $callback): mixed
 {
     $previous = [];
-    foreach (['PODMAN_BINARY', 'CONTAINER_TOOLS_TEST_ARGS', 'CONTAINER_TOOLS_TEST_STDIN'] as $key) {
+    foreach (['PODMAN_BINARY', 'CONTAINER_CONNECTION', 'CONTAINER_TOOLS_TEST_ARGS', 'CONTAINER_TOOLS_TEST_STDIN'] as $key) {
         $previous[$key] = getenv($key);
     }
     putenv('PODMAN_BINARY=' . $binary);
@@ -45,7 +45,7 @@ function remove_fake_podman_directory(string $directory): void
     rmdir($directory);
 }
 
-test('Kube Play passes a manifest and network to Podman and supports remote connections', function () {
+test('Kube Play uses selected connection', function () {
     [$directory, $binary] = fake_podman_for_kube_play();
     $manifest = dirname(__DIR__) . '/fixtures/kube-play/alpine.yaml';
 
@@ -71,17 +71,21 @@ test('Kube Play passes a manifest and network to Podman and supports remote conn
     }
 });
 
-test('Kube Play down uses Podman kube play down and leaves networks caller-selected', function () {
+test('Kube Play down uses selected connection', function () {
     [$directory, $binary] = fake_podman_for_kube_play();
     $manifest = dirname(__DIR__) . '/fixtures/kube-play/alpine.yaml';
 
     try {
         with_fake_podman_environment($binary, $directory, function () use ($directory, $manifest) {
+            $connection = getenv('CONTAINER_CONNECTION') ?: null;
             $result = (new PodmanKubePlay())->down(new KubePlayDefinition($manifest));
 
             expect($result->status)->toBe(0);
-            expect(file_get_contents($directory . '/args'))->toBe("kube\nplay\n--down\n-\n");
+            expect(file_get_contents($directory . '/args'))->toBe(
+                ($connection === null ? '' : "--connection\n$connection\n") . "kube\nplay\n--down\n-\n",
+            );
             expect($result->data['operation'])->toBe('kube-down');
+            expect($result->data['connection'])->toBe($connection);
             expect($result->data['networks'])->toBe([]);
         });
     } finally {
@@ -89,7 +93,7 @@ test('Kube Play down uses Podman kube play down and leaves networks caller-selec
     }
 });
 
-test('Kube Play reports a missing manifest without invoking Podman', function () {
+test('Kube Play rejects missing manifest', function () {
     [$directory, $binary] = fake_podman_for_kube_play();
 
     try {

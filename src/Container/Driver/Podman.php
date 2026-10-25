@@ -25,6 +25,7 @@ final class Podman implements ContainerManagerInterface
     private readonly ClientInterface $http;
     private readonly string $apiVersion;
     private readonly ?string $connectionName;
+    private readonly ?string $composeHost;
 
     public function __construct(?string $connection = null, ?ClientInterface $httpClient = null)
     {
@@ -32,12 +33,14 @@ final class Podman implements ContainerManagerInterface
         if ($httpClient !== null) {
             $this->connection = new PodmanConnection();
             $this->http = $httpClient;
+            $this->composeHost = null;
         } else {
             if (!extension_loaded('curl')) {
                 throw new \RuntimeException('The PHP curl extension is required to connect to the Podman REST API.');
             }
             $this->connection = new PodmanConnection();
             $endpoint = $this->connection->open($this->connectionName);
+            $this->composeHost = $endpoint['compose_host'];
             $this->http = new Client([
                 'base_uri' => $endpoint['base_uri'],
                 'http_errors' => false,
@@ -391,7 +394,7 @@ final class Podman implements ContainerManagerInterface
     public function createFromCompose(ComposeInstanceDefinition $instance): CommandResult
     {
         $project = 'container-tools-' . bin2hex(random_bytes(6));
-        $compose = new PodmanCompose($this->connectionName);
+        $compose = new PodmanCompose($this->connectionName, $this->composeHost);
         $up = $compose->up($instance->file, $instance->service, $project, $instance->name);
         if (!$up->succeeded()) {
             return $up->withData([

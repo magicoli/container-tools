@@ -9,7 +9,10 @@ use Magicoli\ContainerTools\Container\CommandResult;
 /** Runs the Compose provider selected by Podman's standard `podman compose` command. */
 final class PodmanCompose
 {
-    public function __construct(private readonly ?string $connection = null) {}
+    public function __construct(
+        private readonly ?string $connection = null,
+        private readonly ?string $dockerHost = null,
+    ) {}
 
     public function up(string $file, string $service, string $project, ?string $containerName): CommandResult
     {
@@ -35,6 +38,9 @@ final class PodmanCompose
         }
         if ($containerName !== null) {
             $environment['CONTAINER_TOOLS_CONTAINER_NAME'] = $containerName;
+        }
+        if ($this->dockerHost !== null && $this->dockerHost !== '') {
+            $environment['DOCKER_HOST'] = $this->dockerHost;
         }
 
         $process = @proc_open($command, [

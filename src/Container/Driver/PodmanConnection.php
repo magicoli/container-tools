@@ -11,7 +11,7 @@ final class PodmanConnection
 {
     private mixed $tunnel = null;
 
-    /** @return array{base_uri: string, curl: array, connection: ?string} */
+    /** @return array{base_uri: string, curl: array, connection: ?string, compose_host: string} */
     public function open(?string $connection = null): array
     {
         $connection ??= (getenv('CONTAINER_CONNECTION') ?: null);
@@ -34,10 +34,12 @@ final class PodmanConnection
         }
 
         if (str_starts_with($uri, 'unix://')) {
+            $socket = substr($uri, strlen('unix://'));
             return [
                 'base_uri' => 'http://localhost/',
-                'curl' => [CURLOPT_UNIX_SOCKET_PATH => substr($uri, strlen('unix://'))],
+                'curl' => [CURLOPT_UNIX_SOCKET_PATH => $socket],
                 'connection' => $connection,
+                'compose_host' => 'unix://' . $socket,
             ];
         }
 
@@ -64,13 +66,17 @@ final class PodmanConnection
                 'base_uri' => "http://127.0.0.1:$port/",
                 'curl' => [],
                 'connection' => $connection,
+                'compose_host' => "tcp://127.0.0.1:$port",
             ];
         }
 
         if (str_starts_with($uri, 'tcp://')) {
+            $composeHost = $uri;
             $uri = 'http://' . substr($uri, strlen('tcp://'));
+        } else {
+            $composeHost = $uri;
         }
-        return ['base_uri' => rtrim($uri, '/') . '/', 'curl' => [], 'connection' => $connection];
+        return ['base_uri' => rtrim($uri, '/') . '/', 'curl' => [], 'connection' => $connection, 'compose_host' => $composeHost];
     }
 
     public function close(): void

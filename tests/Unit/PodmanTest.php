@@ -45,7 +45,7 @@ function image_inspection(array $ports = [], string $id = 'sha256:image-id'): Re
     ], JSON_THROW_ON_ERROR));
 }
 
-test('container creation uses the compatible REST endpoint and returns API inspection details', function () {
+test('create returns container inspection', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
@@ -73,7 +73,7 @@ test('container creation uses the compatible REST endpoint and returns API inspe
     ]);
 });
 
-test('build uploads a Containerfile context to Podman and applies build options', function () {
+test('build uploads context and options', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
@@ -109,7 +109,7 @@ test('build uploads a Containerfile context to Podman and applies build options'
     expect($history[2]['request']->getHeaderLine('Content-Type'))->toBe('application/x-tar');
 });
 
-test('build reports an existing image whose layers and resulting ID were unchanged', function () {
+test('build reports unchanged image', function () {
     $context = dirname(__DIR__, 2) . '/examples/caddy';
     $podman = podman_api([
         api_version(),
@@ -122,7 +122,7 @@ test('build reports an existing image whose layers and resulting ID were unchang
     expect($result->data['summary'])->toBe('Image unchanged (1/1 build steps reused from cache)');
 });
 
-test('build distinguishes rebuilding an existing tag without cache', function () {
+test('build reports uncached rebuild', function () {
     $context = dirname(__DIR__, 2) . '/examples/caddy';
     $podman = podman_api([
         api_version(),
@@ -135,7 +135,7 @@ test('build distinguishes rebuilding an existing tag without cache', function ()
     expect($result->data['summary'])->toBe('Existing image rebuilt without cache');
 });
 
-test('build refuses a Containerfile outside its context', function () {
+test('build rejects files outside context', function () {
     $podman = podman_api([api_version()]);
     $context = dirname(__DIR__, 2) . '/examples/caddy';
     $result = $podman->build(new ImageBuildDefinition(__FILE__, 'localhost/invalid:latest', $context));
@@ -144,7 +144,7 @@ test('build refuses a Containerfile outside its context', function () {
     expect($result->stderr)->toContain('inside the build context');
 });
 
-test('build treats an error in the build event stream as a failure', function () {
+test('build reports stream errors', function () {
     $podman = podman_api([
         api_version(),
         new Response(404, [], '{"message":"no such image"}'),
@@ -159,7 +159,7 @@ test('build treats an error in the build event stream as a failure', function ()
     expect($result->data['summary'])->toBe('Image build failed');
 });
 
-test('container creation leaves the image command unchanged when no command was requested', function () {
+test('create keeps image command by default', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
@@ -176,7 +176,7 @@ test('container creation leaves the image command unchanged when no command was 
     expect($body)->toMatchArray(['OpenStdin' => true, 'Tty' => true]);
 });
 
-test('container creation pulls an image that is not available yet', function () {
+test('create pulls missing image', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
@@ -201,7 +201,7 @@ test('container creation pulls an image that is not available yet', function () 
     expect($body)->toBe(['Image' => 'docker.io/library/debian:12-slim', 'OpenStdin' => true, 'Tty' => true, 'Hostname' => 'sample']);
 });
 
-test('start and stop use REST lifecycle operations and return the resulting state', function () {
+test('start and stop report state', function () {
     $podman = podman_api([
         api_version(), new Response(204), container_inspection('running'),
     ]);
@@ -215,7 +215,7 @@ test('start and stop use REST lifecycle operations and return the resulting stat
     expect($stopped->data['container']['status'])->toBe('exited');
 });
 
-test('exec returns the command output and exit code from the REST API', function () {
+test('exec returns output and status', function () {
     $multiplexed = "\x01\x00\x00\x00\x00\x00\x00\x05hello";
     $podman = podman_api([
         api_version(),
@@ -230,7 +230,7 @@ test('exec returns the command output and exit code from the REST API', function
     expect($result->data['exit_code'])->toBe(0);
 });
 
-test('destroy inspects the target then removes it through the REST API', function () {
+test('destroy removes container', function () {
     $podman = podman_api([api_version(), container_inspection('exited'), new Response(204)]);
     $result = $podman->destroy('sample');
 
@@ -239,7 +239,7 @@ test('destroy inspects the target then removes it through the REST API', functio
     expect($result->data['container']['name'])->toBe('sample');
 });
 
-test('a missing container is reported from the REST API response', function () {
+test('missing container is reported', function () {
     $podman = podman_api([api_version(), new Response(404, [], json_encode(['message' => 'no such container'], JSON_THROW_ON_ERROR))]);
     $result = $podman->destroy('typo');
 
@@ -248,7 +248,7 @@ test('a missing container is reported from the REST API response', function () {
     expect($result->data['operation'])->toBe('destroy');
 });
 
-test('network creation sends DHCP or static IPAM settings through the REST API', function () {
+test('network create configures IPAM', function () {
     $history = [];
     $podman = podman_api([api_version(), new Response(201, [], '{"Id":"network-id","Warning":""}')], $history);
 
@@ -276,7 +276,7 @@ test('network creation sends DHCP or static IPAM settings through the REST API',
     ]);
 });
 
-test('container creation attaches requested static IPv4 and IPv6 addresses', function () {
+test('create assigns static IP addresses', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
@@ -305,7 +305,7 @@ test('container creation attaches requested static IPv4 and IPv6 addresses', fun
     ]);
 });
 
-test('published ports include host mapping details in the container result', function () {
+test('published ports appear in result', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
@@ -324,7 +324,7 @@ test('published ports include host mapping details in the container result', fun
     expect($body['HostConfig']['PortBindings']['80/tcp'])->toBe([['HostIp' => '127.0.0.1', 'HostPort' => '8080']]);
 });
 
-test('image EXPOSE ports are published automatically and explicit mappings override matching defaults', function () {
+test('EXPOSE mappings accept overrides', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
@@ -347,7 +347,7 @@ test('image EXPOSE ports are published automatically and explicit mappings overr
     ]);
 });
 
-test('an explicit host port replaces the image default for the same container port', function () {
+test('explicit port replaces image mapping', function () {
     $history = [];
     $podman = podman_api([
         api_version(), image_inspection(), image_inspection(['8000/tcp']),
@@ -361,7 +361,7 @@ test('an explicit host port replaces the image default for the same container po
     expect($body['HostConfig']['PortBindings'])->toBe(['8000/tcp' => [['HostPort' => '8001']]]);
 });
 
-test('an explicit port adds to image default mappings for a different container port', function () {
+test('explicit port adds image mapping', function () {
     $history = [];
     $podman = podman_api([
         api_version(), image_inspection(), image_inspection(['8000/tcp']),
@@ -378,7 +378,7 @@ test('an explicit port adds to image default mappings for a different container 
     ]);
 });
 
-test('pasta automatic publishing is configured as a runtime network mode', function () {
+test('pasta configures runtime forwarding', function () {
     $history = [];
     $podman = podman_api([
         api_version(), image_inspection(), image_inspection(['8080/tcp']),
@@ -393,7 +393,7 @@ test('pasta automatic publishing is configured as a runtime network mode', funct
     expect($body['HostConfig'])->not->toHaveKey('PortBindings');
 });
 
-test('pasta automatic publishing retains explicit host-to-container mappings', function () {
+test('pasta keeps explicit mappings', function () {
     $history = [];
     $podman = podman_api([
         api_version(), image_inspection(), image_inspection(['80/tcp']),
@@ -408,7 +408,7 @@ test('pasta automatic publishing retains explicit host-to-container mappings', f
     expect($body['HostConfig']['PortBindings'])->toBe(['80/tcp' => [['HostPort' => '8080']]]);
 });
 
-test('direct networks can coexist with published ports through an additional bridge attachment', function () {
+test('direct networks allow published ports', function () {
     $history = [];
     $podman = podman_api([
         api_version(),
@@ -444,7 +444,7 @@ test('direct networks can coexist with published ports through an additional bri
     ]);
 });
 
-test('port mapping parser accepts fixed and automatic host ports', function () {
+test('port parser accepts fixed and automatic ports', function () {
     $fixed = PortForward::parse('8080:80');
     expect($fixed->hostPort)->toBe(8080);
     expect($fixed->containerPort)->toBe(80);
@@ -455,7 +455,7 @@ test('port mapping parser accepts fixed and automatic host ports', function () {
     expect($automatic->protocol())->toBe('udp');
 });
 
-test('port mapping parser expands lists and equal-sized ranges', function () {
+test('port parser expands lists and ranges', function () {
     $list = PortForward::parseList('8080:80,8022:22,8443:443');
     expect(array_map(static fn (PortForward $forward) => [$forward->hostPort, $forward->containerPort], $list))
         ->toBe([[8080, 80], [8022, 22], [8443, 443]]);
@@ -473,6 +473,6 @@ test('port mapping parser expands lists and equal-sized ranges', function () {
     expect(PortForward::parse('[::1]:8080:80')->hostIp)->toBe('::1');
 });
 
-test('port mapping parser rejects mismatched port ranges', function () {
+test('port parser rejects mismatched ranges', function () {
     expect(fn () => PortForward::parseList('8080-8082:80-81'))->toThrow(InvalidArgumentException::class);
 });

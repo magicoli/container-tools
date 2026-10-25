@@ -1,3 +1,5 @@
 /vendor/
 /tmp/
+/.env
+/tests/.env
 .DS_Store

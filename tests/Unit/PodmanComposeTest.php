@@ -2,7 +2,7 @@
 
 use Magicoli\ContainerTools\Container\Module\Compose\PodmanCompose;
 
-test('Compose module runs the selected Podman provider with connection and instance name', function () {
+test('Compose passes connection and name', function () {
     $directory = sys_get_temp_dir() . '/container-tools-compose-' . bin2hex(random_bytes(6));
     mkdir($directory, 0700, true);
     $binary = $directory . '/podman';
