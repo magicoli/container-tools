@@ -2,7 +2,7 @@
 
 A small PHP library for Podman container lifecycle operations, with a command adapter for shell callers.
 
-The first milestone covers image builds from a local Containerfile and build context, image availability, container creation and startup, state inspection, readiness probes, command execution, stopping, and destruction. Container operations use Podman's official Docker-compatible REST API; Guzzle handles HTTP and cURL handles the Unix socket transport. Podman's configured SSH connection is used only to establish an SSH tunnel to its API socket. Runtime configuration modules live separately under `Container\Module`: Compose delegates to Podman's configured Compose provider, and Kube Play delegates Kubernetes manifests to Podman. These modules keep their own lifecycle APIs instead of pretending that different deployment formats have identical semantics.
+The first milestone covers image builds from a local Containerfile and build context, image availability, container creation and startup, state inspection, readiness probes, command execution, file transfer, stopping, and destruction. Container operations use Podman's official Docker-compatible REST API; Guzzle handles HTTP and cURL handles the Unix socket transport. Podman's configured SSH connection is used only to establish an SSH tunnel to its API socket. Runtime configuration modules live separately under `Container\Module`: Compose delegates to Podman's configured Compose provider, and Kube Play delegates Kubernetes manifests to Podman. These modules keep their own lifecycle APIs instead of pretending that different deployment formats have identical semantics.
 
 The public API is under `Magicoli\ContainerTools\Container`: `ContainerManagerInterface` defines the driver contract, `ContainerDefinition` describes a container, and `Container\Driver\Podman` implements the contract. The command in `bin/` is a thin shell-facing adapter over that API.
 
@@ -19,6 +19,8 @@ Creation defaults to keeping stdin open and allocating a TTY, matching Podman De
 ./bin/container-tools create --name example --image docker.io/library/nginx:alpine
 ./bin/container-tools status example
 ./bin/container-tools wait-ready example -- wget -q -O /dev/null http://127.0.0.1/
+./bin/container-tools cp ./config.php example:/tmp/config.php
+./bin/container-tools exec example -- cat /tmp/config.php
 ./bin/container-tools stop example
 ./bin/container-tools destroy example
 ```
@@ -42,6 +44,8 @@ Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. 
 - `wait-ready NAME -- PROBE...` runs the probe repeatedly until it succeeds or times out. A running container is not necessarily ready to serve requests, so this is useful when a service needs startup time.
 - `start NAME` starts an existing stopped container; `stop NAME` stops a running container.
 - `destroy NAME` removes a container, stopping it first if needed.
+- `cp SOURCE CONTAINER:DESTINATION` copies a local file or directory to an exact absolute path in a container. Its parent directory must already exist; stopped containers are supported.
+- `exec NAME -- COMMAND...` runs a command in a running container and reports its exit status.
 - `image-pull IMAGE` downloads an image explicitly before creation.
 - `network create|inspect|destroy` manages Podman networks for containers that need a direct network address.
 - `create --compose-file FILE --service NAME [--name INSTANCE]` creates one container from a service in a Compose file. Compose holds the service's image, ports, volumes, configuration files, environment and command; the normal `start`, `stop`, `exec`, `status` and `destroy` operations remain available afterward.

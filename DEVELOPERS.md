@@ -44,7 +44,7 @@ vendor/bin/container-tools create --name app-service --image docker.io/library/a
 vendor/bin/container-tools status app-service
 ```
 
-The CLI honors the standard `-v|--verbose`, `-q|--quiet`, `-h|--help`, and `-d|--dry-run` options and accepts option values as either `--option value` or `--option=value`. Its `exec NAME -- COMMAND...` runs a command in a running container and reports its exit status. This command adapter is usable from an interactive or non-interactive host terminal; the current `exec` operation itself does not attach an interactive PTY.
+The CLI honors the standard `-v|--verbose`, `-q|--quiet`, `-h|--help`, and `-d|--dry-run` options and accepts option values as either `--option value` or `--option=value`. Its `exec NAME -- COMMAND...` runs a command in a running container and reports its exit status. `cp SOURCE NAME:DESTINATION` copies a client-local file or directory into a container, including over a remote connection. This command adapter is usable from an interactive or non-interactive host terminal; `exec` does not attach an interactive PTY.
 
 ## Select the Podman host
 
@@ -97,7 +97,7 @@ if (!$ready->succeeded()) {
 
 Use the returned structured `data` for IDs, assigned names, effective ports, lifecycle state, and operation summaries. Do not parse the human-readable CLI output or raw Podman JSON when the corresponding result data is available. `CommandResult` exposes `status`, `stdout`, `stderr`, `data`, and `succeeded()`.
 
-`ContainerManagerInterface` currently covers image availability/pull/build, networks, single-container create/start/stop/inspect/status/readiness/exec/destroy, and create from one Compose service. `exec()` is a command invocation, not an interactive terminal session.
+`ContainerManagerInterface` currently covers image availability/pull/build, networks, single-container create/start/stop/inspect/status/readiness/exec/copy/destroy, and create from one Compose service. `exec()` is a command invocation, not an interactive terminal session.
 
 ## Use runtime configuration modules
 

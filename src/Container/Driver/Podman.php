@@ -550,6 +550,77 @@ final class Podman implements ContainerManagerInterface
         return new CommandResult($exitCode, $stdout, $stderr, ['operation' => 'exec', 'summary' => $exitCode === 0 ? 'Command executed in container' : 'Command failed in container', 'container' => ['reference' => $name], 'exit_code' => $exitCode]);
     }
 
+    /** Copy a client-local file or directory to an exact path in a container. */
+    public function copyTo(string $name, string $source, string $destination): CommandResult
+    {
+        $sourcePath = realpath($source);
+        if ($sourcePath === false || (!is_file($sourcePath) && !is_dir($sourcePath))) {
+            return new CommandResult(2, stderr: "Copy source not found: $source\n", data: ['operation' => 'copy', 'container' => ['reference' => $name], 'source' => $source, 'destination' => $destination]);
+        }
+        if ($destination === '' || $destination[0] !== '/' || basename($destination) === '' || basename($destination) === '.' || basename($destination) === '..') {
+            return new CommandResult(2, stderr: "Container destination must be an absolute file or directory path.\n", data: ['operation' => 'copy', 'container' => ['reference' => $name], 'source' => $sourcePath, 'destination' => $destination]);
+        }
+
+        $temporary = tempnam(sys_get_temp_dir(), 'container-tools-copy-');
+        if ($temporary === false) {
+            return new CommandResult(1, stderr: "Could not create a temporary copy archive.\n", data: ['operation' => 'copy', 'container' => ['reference' => $name], 'source' => $sourcePath, 'destination' => $destination]);
+        }
+        unlink($temporary);
+        $archivePath = $temporary . '.tar';
+        $archive = null;
+        $stream = null;
+        try {
+            $archive = new \PharData($archivePath, 0, null, \Phar::TAR);
+            $entry = basename($destination);
+            if (is_file($sourcePath)) {
+                $archive->addFile($sourcePath, $entry);
+            } else {
+                $archive->addEmptyDir($entry);
+                $root = rtrim($sourcePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+                $iterator = new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator($sourcePath, \FilesystemIterator::SKIP_DOTS),
+                    \RecursiveIteratorIterator::SELF_FIRST,
+                );
+                foreach ($iterator as $item) {
+                    $relative = str_replace(DIRECTORY_SEPARATOR, '/', substr($item->getPathname(), strlen($root)));
+                    $archiveName = $entry . '/' . $relative;
+                    if ($item->isDir() && !$item->isLink()) {
+                        $archive->addEmptyDir($archiveName);
+                    } elseif ($item->isFile()) {
+                        $archive->addFile($item->getPathname(), $archiveName);
+                    }
+                }
+            }
+            unset($archive);
+            $stream = fopen($archivePath, 'rb');
+            if ($stream === false) {
+                return new CommandResult(1, stderr: "Could not read the temporary copy archive.\n", data: ['operation' => 'copy', 'container' => ['reference' => $name], 'source' => $sourcePath, 'destination' => $destination]);
+            }
+            $containerDirectory = dirname($destination);
+            $result = $this->request(
+                'PUT',
+                $this->path('containers/' . rawurlencode($name) . '/archive') . '?path=' . rawurlencode($containerDirectory),
+                null,
+                ['body' => $stream, 'headers' => ['Content-Type' => 'application/x-tar']],
+            );
+            return $result->withData([
+                'operation' => 'copy',
+                'summary' => $result->succeeded() ? 'Files copied to container' : 'File copy failed',
+                'container' => ['reference' => $name],
+                'source' => $sourcePath,
+                'destination' => $destination,
+            ]);
+        } catch (\Throwable $exception) {
+            return new CommandResult(1, stderr: $exception->getMessage() . "\n", data: ['operation' => 'copy', 'summary' => 'File copy failed', 'container' => ['reference' => $name], 'source' => $sourcePath, 'destination' => $destination]);
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+            unset($archive);
+            @unlink($archivePath);
+        }
+    }
+
     /** @return CommandResult data includes operation, summary, and pre-removal container details. */
     public function destroy(string $name): CommandResult
     {
@@ -561,10 +632,9 @@ final class Podman implements ContainerManagerInterface
         return $result->withData(['operation' => 'destroy', 'summary' => $result->succeeded() ? 'Container destroyed' : 'Container destruction failed', 'container' => $inspection->data['container']]);
     }
 
-    private function request(string $method, string $path, ?array $json = null): CommandResult
+    private function request(string $method, string $path, ?array $json = null, array $options = []): CommandResult
     {
         try {
-            $options = [];
             if ($json !== null) {
                 $options['json'] = $json;
             }

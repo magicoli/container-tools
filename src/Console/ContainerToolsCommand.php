@@ -38,6 +38,7 @@ final class ContainerToolsCommand
                         "status",
                         "wait-ready",
                         "exec",
+                        "cp",
                         "destroy",
                     ],
                     true,
@@ -105,6 +106,7 @@ final class ContainerToolsCommand
                     : null,
                 "wait-ready" => $this->ready($arguments),
                 "exec" => $this->execute($arguments),
+                "cp" => $this->copyTo($arguments),
                 "destroy" => count($arguments) === 1
                     ? $this->manager->destroy($arguments[0])
                     : null,
@@ -235,6 +237,15 @@ final class ContainerToolsCommand
                     => "usage: container-tools wait-ready NAME -- PROBE...\n\nRepeat PROBE in the container until it succeeds or the readiness timeout expires.",
                 "exec"
                     => "usage: container-tools exec NAME -- COMMAND...\n\nRun COMMAND inside a running container.",
+                "cp" => <<<'HELP'
+                usage: container-tools cp SOURCE CONTAINER:DESTINATION
+
+                Copy a local file or directory to an exact path in a container. The destination's
+                parent directory must already exist. The container may be stopped or running.
+
+                Example:
+                  container-tools cp ./setup.sh opensim:/tmp/setup.sh
+                HELP,
                 "destroy"
                     => "usage: container-tools destroy NAME\n\nStop and remove a container.",
                 default => null,
@@ -259,6 +270,7 @@ final class ContainerToolsCommand
             status NAME
             wait-ready NAME -- PROBE...
             exec NAME -- COMMAND...
+            cp SOURCE CONTAINER:DESTINATION
             destroy NAME
 
         Networks
@@ -642,6 +654,18 @@ final class ContainerToolsCommand
             return null;
         }
         return $this->manager->exec($name, $arguments);
+    }
+
+    private function copyTo(array $arguments): ?CommandResult
+    {
+        if (count($arguments) !== 2 || !str_contains($arguments[1], ":")) {
+            return null;
+        }
+        [$name, $destination] = explode(":", $arguments[1], 2);
+        if ($name === "" || $destination === "") {
+            return null;
+        }
+        return $this->manager->copyTo($name, $arguments[0], $destination);
     }
 
     private function render(

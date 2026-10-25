@@ -230,6 +230,84 @@ test('exec returns output and status', function () {
     expect($result->data['exit_code'])->toBe(0);
 });
 
+test('copyTo streams a local file to the selected container path', function () {
+    $source = tempnam(sys_get_temp_dir(), 'container-tools-copy-source-');
+    file_put_contents($source, "setup payload\n");
+    $requestDetails = [];
+    $stack = HandlerStack::create(new MockHandler([api_version(), new Response(200, [], '{}')]));
+    $stack->push(Middleware::mapRequest(function ($request) use (&$requestDetails) {
+        $body = $request->getBody();
+        $body->rewind();
+        $requestDetails = [
+            'uri' => (string) $request->getUri(),
+            'content_type' => $request->getHeaderLine('Content-Type'),
+            'body' => $body->getContents(),
+        ];
+        $body->rewind();
+        return $request;
+    }));
+    $podman = new Podman(httpClient: new Client(['base_uri' => 'http://podman.test/', 'handler' => $stack, 'http_errors' => false]));
+
+    try {
+        $result = $podman->copyTo('sample', $source, '/tmp/setup.sh');
+
+        expect($result->status)->toBe(0);
+        expect($result->data)->toMatchArray([
+            'operation' => 'copy',
+            'summary' => 'Files copied to container',
+            'container' => ['reference' => 'sample'],
+            'destination' => '/tmp/setup.sh',
+        ]);
+        expect($requestDetails['uri'])->toContain('/v1.41/containers/sample/archive?path=%2Ftmp');
+        expect($requestDetails['content_type'])->toBe('application/x-tar');
+        $archivePath = tempnam(sys_get_temp_dir(), 'container-tools-copy-archive-');
+        unlink($archivePath);
+        $archivePath .= '.tar';
+        file_put_contents($archivePath, $requestDetails['body']);
+        $archive = new PharData($archivePath);
+        expect($archive->offsetExists('setup.sh'))->toBeTrue();
+        expect($archive['setup.sh']->getContent())->toBe("setup payload\n");
+        unset($archive);
+        unlink($archivePath);
+    } finally {
+        unlink($source);
+    }
+});
+
+test('copyTo archives a directory under the requested destination name', function () {
+    $directory = sys_get_temp_dir() . '/container-tools-directory-' . bin2hex(random_bytes(4));
+    mkdir($directory . '/nested', 0777, true);
+    file_put_contents($directory . '/nested/run.sh', "echo ready\n");
+    $requestBody = '';
+    $stack = HandlerStack::create(new MockHandler([api_version(), new Response(200, [], '{}')]));
+    $stack->push(Middleware::mapRequest(function ($request) use (&$requestBody) {
+        $body = $request->getBody();
+        $body->rewind();
+        $requestBody = $body->getContents();
+        $body->rewind();
+        return $request;
+    }));
+    $podman = new Podman(httpClient: new Client(['base_uri' => 'http://podman.test/', 'handler' => $stack, 'http_errors' => false]));
+    $archivePath = tempnam(sys_get_temp_dir(), 'container-tools-directory-archive-');
+    unlink($archivePath);
+    $archivePath .= '.tar';
+
+    try {
+        $result = $podman->copyTo('sample', $directory, '/opt/service');
+        expect($result->status)->toBe(0);
+        file_put_contents($archivePath, $requestBody);
+        $archive = new PharData($archivePath);
+        expect($archive->offsetExists('service/nested/run.sh'))->toBeTrue();
+        expect($archive['service/nested/run.sh']->getContent())->toBe("echo ready\n");
+        unset($archive);
+    } finally {
+        @unlink($archivePath);
+        @unlink($directory . '/nested/run.sh');
+        @rmdir($directory . '/nested');
+        @rmdir($directory);
+    }
+});
+
 test('destroy removes container', function () {
     $podman = podman_api([api_version(), container_inspection('exited'), new Response(204)]);
     $result = $podman->destroy('sample');

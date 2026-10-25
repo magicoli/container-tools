@@ -58,6 +58,12 @@ interface ContainerManagerInterface
      */
     public function exec(string $name, array $command): CommandResult;
 
+    /**
+     * Copy a client-local file or directory to an exact absolute path in a container.
+     * The destination's parent directory must already exist; stopped containers are supported.
+     */
+    public function copyTo(string $name, string $source, string $destination): CommandResult;
+
     /** Stop if needed and remove a container by name or ID. */
     public function destroy(string $name): CommandResult;
 

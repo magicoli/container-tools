@@ -2,6 +2,8 @@
 
 ### Unreleased
 
+- feat: copy local files and directories into containers through the PHP API and CLI
+
 ### 0.1.0-dev.2
 
 - feat: add Bash completion for CLI
