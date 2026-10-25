@@ -15,6 +15,7 @@
         "guzzlehttp/guzzle": "^7.9"
     },
     "require-dev": {
+        "magicoli/pest-failure-summary": "^1.0",
         "pestphp/pest": "^3.0"
     },
     "autoload": {

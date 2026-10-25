@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "faaadfd467da8edd199b8de1e8db2d07",
+    "content-hash": "c2ef25eaa40e53adee2774d74d5212bf",
     "packages": [
         {
             "name": "guzzlehttp/guzzle",
@@ -1031,6 +1031,60 @@
                 "source": "https://github.com/Jean85/pretty-package-versions/tree/2.1.1"
             },
             "time": "2025-03-19T14:43:43+00:00"
+        },
+        {
+            "name": "magicoli/pest-failure-summary",
+            "version": "1.0.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/magicoli/pest-failure-summary.git",
+                "reference": "996eb543af69e952e467242dba2e7e5656369ebf"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/magicoli/pest-failure-summary/zipball/996eb543af69e952e467242dba2e7e5656369ebf",
+                "reference": "996eb543af69e952e467242dba2e7e5656369ebf",
+                "shasum": ""
+            },
+            "require": {
+                "phpunit/phpunit": "^10.0 || ^11.0 || ^12.0 || ^13.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Magicoli\\PestFailureSummary\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "AGPL-3.0-or-later"
+            ],
+            "authors": [
+                {
+                    "name": "Olivier van Helden",
+                    "homepage": "https://magiiic.com"
+                }
+            ],
+            "description": "PHPUnit/Pest extension: concise failure and skipped summary after the test run",
+            "support": {
+                "issues": "https://github.com/magicoli/pest-failure-summary/issues",
+                "source": "https://github.com/magicoli/pest-failure-summary/tree/1.0.1"
+            },
+            "funding": [
+                {
+                    "url": "https://www.buymeacoffee.com/magicoli",
+                    "type": "buy_me_a_coffee"
+                },
+                {
+                    "url": "https://magiiic.org/donate/",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/magicoli",
+                    "type": "github"
+                }
+            ],
+            "time": "2026-10-01T14:41:14+00:00"
         },
         {
             "name": "myclabs/deep-copy",
