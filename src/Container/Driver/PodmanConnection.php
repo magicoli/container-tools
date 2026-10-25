@@ -10,6 +10,7 @@ use RuntimeException;
 final class PodmanConnection
 {
     private mixed $tunnel = null;
+    private mixed $tunnelStderr = null;
 
     /** @return array{base_uri: string, curl: array, connection: ?string, compose_host: string} */
     public function open(?string $connection = null): array
@@ -58,9 +59,17 @@ final class PodmanConnection
                 array_push($arguments, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null');
             }
             $arguments[] = $target;
-            $this->tunnel = @proc_open($arguments, [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+            $this->tunnel = @proc_open($arguments, [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['pipe', 'w']], $pipes);
             if (!is_resource($this->tunnel)) {
                 throw new RuntimeException('Could not start the SSH tunnel for the Podman REST API.');
+            }
+            $this->tunnelStderr = $pipes[2];
+            stream_set_blocking($this->tunnelStderr, false);
+            try {
+                $this->waitForTunnel($port);
+            } catch (RuntimeException $exception) {
+                $this->close();
+                throw $exception;
             }
             return [
                 'base_uri' => "http://127.0.0.1:$port/",
@@ -85,6 +94,10 @@ final class PodmanConnection
             proc_terminate($this->tunnel);
             proc_close($this->tunnel);
             $this->tunnel = null;
+        }
+        if (is_resource($this->tunnelStderr)) {
+            fclose($this->tunnelStderr);
+            $this->tunnelStderr = null;
         }
     }
 
@@ -145,5 +158,50 @@ final class PodmanConnection
         $address = stream_socket_get_name($socket, false);
         fclose($socket);
         return (int) substr(strrchr((string) $address, ':'), 1);
+    }
+
+    private function waitForTunnel(int $port): void
+    {
+        $deadline = microtime(true) + 5;
+        $diagnostic = '';
+
+        do {
+            if (is_resource($this->tunnelStderr)) {
+                $diagnostic .= stream_get_contents($this->tunnelStderr) ?: '';
+            }
+            $status = proc_get_status($this->tunnel);
+            if (!$status['running']) {
+                if (is_resource($this->tunnelStderr)) {
+                    $diagnostic .= stream_get_contents($this->tunnelStderr) ?: '';
+                }
+                $message = trim($diagnostic);
+                throw new RuntimeException(
+                    'Could not establish the SSH tunnel for the Podman REST API.' .
+                    ($message === '' ? '' : " $message"),
+                );
+            }
+
+            set_error_handler(static fn (): bool => true);
+            try {
+                $socket = stream_socket_client("tcp://127.0.0.1:$port", $errorCode, $errorMessage, 0.05);
+            } finally {
+                restore_error_handler();
+            }
+            if (is_resource($socket)) {
+                fclose($socket);
+                return;
+            }
+
+            usleep(50_000);
+        } while (microtime(true) < $deadline);
+
+        if (is_resource($this->tunnelStderr)) {
+            $diagnostic .= stream_get_contents($this->tunnelStderr) ?: '';
+        }
+        $message = trim($diagnostic);
+        throw new RuntimeException(
+            'Timed out waiting for the SSH tunnel to expose the Podman REST API.' .
+            ($message === '' ? '' : " $message"),
+        );
     }
 }

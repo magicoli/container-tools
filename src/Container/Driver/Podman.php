@@ -629,6 +629,18 @@ final class Podman implements ContainerManagerInterface
             return $inspection->withData(['operation' => 'destroy', 'summary' => 'Container was not destroyed because it could not be inspected']);
         }
         $result = $this->request('DELETE', $this->path('containers/' . rawurlencode($name) . '?force=true'));
+        if (!$result->succeeded()) {
+            $remaining = $this->inspect($name);
+            if (($remaining->data['http_status'] ?? null) === 404) {
+                $warning = trim($result->stderr);
+                return new CommandResult(0, stderr: "Warning: $warning\n", data: [
+                    'operation' => 'destroy',
+                    'summary' => 'Container removed with a network cleanup warning',
+                    'warning' => $warning,
+                    'container' => $inspection->data['container'],
+                ]);
+            }
+        }
         return $result->withData(['operation' => 'destroy', 'summary' => $result->succeeded() ? 'Container destroyed' : 'Container destruction failed', 'container' => $inspection->data['container']]);
     }
 

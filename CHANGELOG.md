@@ -3,6 +3,9 @@
 ### Unreleased
 
 - feat: copy local files and directories into containers through the PHP API and CLI
+- fix: resolve the Composer autoloader when the CLI is invoked through a symlink
+- fix: wait for remote Podman SSH tunnels before sending API requests
+- fix: report removed containers as successful when Podman only warns during network cleanup
 
 ### 0.1.0-dev.2
 

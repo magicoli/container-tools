@@ -317,6 +317,37 @@ test('destroy removes container', function () {
     expect($result->data['container']['name'])->toBe('sample');
 });
 
+test('destroy succeeds when Podman reports a cleanup warning after removal', function () {
+    $podman = podman_api([
+        api_version(),
+        container_inspection('running'),
+        new Response(500, [], json_encode(['message' => 'rootless netns: kill network process: permission denied'], JSON_THROW_ON_ERROR)),
+        new Response(404, [], json_encode(['message' => 'no such container'], JSON_THROW_ON_ERROR)),
+    ]);
+
+    $result = $podman->destroy('sample');
+
+    expect($result->status)->toBe(0);
+    expect($result->data['summary'])->toBe('Container removed with a network cleanup warning');
+    expect($result->data['warning'])->toContain('rootless netns: kill network process: permission denied');
+    expect($result->stderr)->toBe("Warning: rootless netns: kill network process: permission denied\n");
+});
+
+test('destroy remains failed when Podman leaves the container in place', function () {
+    $podman = podman_api([
+        api_version(),
+        container_inspection('running'),
+        new Response(500, [], json_encode(['message' => 'permission denied'], JSON_THROW_ON_ERROR)),
+        container_inspection('running'),
+    ]);
+
+    $result = $podman->destroy('sample');
+
+    expect($result->status)->toBe(500);
+    expect($result->data['summary'])->toBe('Container destruction failed');
+    expect($result->stderr)->toContain('permission denied');
+});
+
 test('missing container is reported', function () {
     $podman = podman_api([api_version(), new Response(404, [], json_encode(['message' => 'no such container'], JSON_THROW_ON_ERROR))]);
     $result = $podman->destroy('typo');
