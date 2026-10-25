@@ -26,11 +26,11 @@ SH);
     putenv('CONTAINER_TOOLS_TEST_NAME=' . $directory . '/name');
 
     try {
-        $result = (new PodmanCompose('ursull'))->up($composeFile, 'web', 'project-1', 'web-instance');
+        $result = (new PodmanCompose('dummy-host'))->up($composeFile, 'web', 'project-1', 'web-instance');
 
         expect($result->status)->toBe(0);
         expect($result->stdout)->toContain('compose provider completed');
-        expect(file_get_contents($directory . '/args'))->toBe("--connection\nursull\ncompose\n--file\n$composeFile\n--project-name\nproject-1\nup\n--detach\n--no-start\nweb\n");
+        expect(file_get_contents($directory . '/args'))->toBe("--connection\ndummy-host\ncompose\n--file\n$composeFile\n--project-name\nproject-1\nup\n--detach\n--no-start\nweb\n");
         expect(file_get_contents($directory . '/name'))->toBe('web-instance');
     } finally {
         foreach ($previous as $key => $value) {
