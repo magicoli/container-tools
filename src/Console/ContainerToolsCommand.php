@@ -6,6 +6,7 @@ namespace Magicoli\ContainerTools\Console;
 
 use InvalidArgumentException;
 use Magicoli\ContainerTools\Container\CommandResult;
+use Magicoli\ContainerTools\Container\ComposeInstanceDefinition;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
@@ -163,6 +164,8 @@ final class ContainerToolsCommand
                 Options:
                       --name NAME       Container name (Podman chooses one if omitted)
                       --image IMAGE     Image to use (default: Alpine 3.24)
+                      --compose-file FILE Compose configuration file for this instance
+                      --service NAME    Service in the Compose file (required with --compose-file)
                       --hostname NAME   Hostname (defaults to the container name)
                       --memory SIZE     Memory limit
                       --label KEY=VALUE Add a label (repeatable)
@@ -319,6 +322,8 @@ final class ContainerToolsCommand
                         "--name",
                         "--image",
                         "--hostname",
+                        "--compose-file",
+                        "--service",
                         "--memory",
                         "--label",
                         "--file",
@@ -393,7 +398,8 @@ final class ContainerToolsCommand
 
     private function create(array $arguments): ?CommandResult
     {
-        $name = $memory = $hostname = null;
+        $name = $memory = $hostname = $composeFile = $composeService = null;
+        $imageSpecified = false;
         $image =
             getenv("CONTAINER_IMAGE") ?: ContainerDefinition::DEFAULT_IMAGE;
         $labels = [];
@@ -427,10 +433,15 @@ final class ContainerToolsCommand
             if ($value === null) {
                 return null;
             }
+            if ($option === "--image") {
+                $imageSpecified = true;
+            }
             match ($option) {
                 "--name" => ($name = $value),
                 "--image" => ($image = $value),
                 "--hostname" => ($hostname = $value),
+                "--compose-file" => ($composeFile = $value),
+                "--service" => ($composeService = $value),
                 "--memory" => ($memory = $value),
                 "--label" => ($labels[] = $value),
                 "--publish" => array_push(
@@ -449,6 +460,8 @@ final class ContainerToolsCommand
                         "--name",
                         "--image",
                         "--hostname",
+                        "--compose-file",
+                        "--service",
                         "--memory",
                         "--label",
                         "--publish",
@@ -472,8 +485,30 @@ final class ContainerToolsCommand
             $networkName === null
                 ? null
                 : new NetworkAttachment($networkName, $ipv4, $ipv6);
-        $created = $this->manager->create(
-            new ContainerDefinition(
+        if ($composeFile !== null) {
+            if (
+                $composeService === null ||
+                $imageSpecified ||
+                $hostname !== null ||
+                $memory !== null ||
+                $labels !== [] ||
+                $portForwards !== [] ||
+                $network !== null ||
+                !$publishExposedPorts ||
+                $pastaAutoPublish ||
+                $command !== []
+            ) {
+                return null;
+            }
+            $created = $this->manager->createFromCompose(
+                new ComposeInstanceDefinition($composeFile, $composeService, $name),
+            );
+        } else {
+            if ($composeService !== null) {
+                return null;
+            }
+            $created = $this->manager->create(
+                new ContainerDefinition(
                 $name,
                 $image,
                 $labels,
@@ -484,8 +519,9 @@ final class ContainerToolsCommand
                 network: $network,
                 publishExposedPorts: $publishExposedPorts,
                 pastaAutoPublish: $pastaAutoPublish,
-            ),
-        );
+                ),
+            );
+        }
         if (!$created->succeeded() || !$start) {
             return $created;
         }

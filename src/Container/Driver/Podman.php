@@ -7,6 +7,7 @@ namespace Magicoli\ContainerTools\Container\Driver;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Magicoli\ContainerTools\Container\CommandResult;
+use Magicoli\ContainerTools\Container\ComposeInstanceDefinition;
 use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
@@ -22,9 +23,11 @@ final class Podman implements ContainerManagerInterface
     private readonly PodmanConnection $connection;
     private readonly ClientInterface $http;
     private readonly string $apiVersion;
+    private readonly ?string $connectionName;
 
     public function __construct(?string $connection = null, ?ClientInterface $httpClient = null)
     {
+        $this->connectionName = $connection ?? (getenv('CONTAINER_CONNECTION') ?: null);
         if ($httpClient !== null) {
             $this->connection = new PodmanConnection();
             $this->http = $httpClient;
@@ -33,7 +36,7 @@ final class Podman implements ContainerManagerInterface
                 throw new \RuntimeException('The PHP curl extension is required to connect to the Podman REST API.');
             }
             $this->connection = new PodmanConnection();
-            $endpoint = $this->connection->open($connection);
+            $endpoint = $this->connection->open($this->connectionName);
             $this->http = new Client([
                 'base_uri' => $endpoint['base_uri'],
                 'http_errors' => false,
@@ -384,6 +387,57 @@ final class Podman implements ContainerManagerInterface
         ]);
     }
 
+    public function createFromCompose(ComposeInstanceDefinition $instance): CommandResult
+    {
+        $project = 'container-tools-' . bin2hex(random_bytes(6));
+        $compose = new PodmanCompose($this->connectionName);
+        $up = $compose->up($instance->file, $instance->service, $project, $instance->name);
+        if (!$up->succeeded()) {
+            return $up->withData([
+                'operation' => 'create',
+                'summary' => 'Compose instance creation failed',
+                'requested' => $this->requestedComposeInstance($instance),
+                'compose_project' => $project,
+            ]);
+        }
+
+        // `compose ps` only lists running containers in Docker Compose by default,
+        // while this method deliberately creates the instance without starting it.
+        // Query Podman's API for all containers so the behavior is provider-independent.
+        $listed = $this->request('GET', $this->path('containers/json?all=true'));
+        $containers = $listed->succeeded() ? json_decode($listed->stdout, true) : null;
+        $serviceContainers = [];
+        foreach (is_array($containers) ? $containers : [] as $row) {
+            $labels = $row['Labels'] ?? [];
+            if (($labels['com.docker.compose.project'] ?? null) !== $project
+                || ($labels['com.docker.compose.service'] ?? null) !== $instance->service) {
+                continue;
+            }
+            $candidate = $this->inspect($row['Id'] ?? '');
+            $details = $candidate->data['container'] ?? null;
+            if (is_array($details)) {
+                $serviceContainers[] = $candidate;
+            }
+        }
+        if (!$listed->succeeded() || !is_array($containers) || count($serviceContainers) !== 1) {
+            return new CommandResult($listed->succeeded() ? 1 : $listed->status, $up->stdout . $listed->stdout, $up->stderr . $listed->stderr . (count($serviceContainers) > 1 ? "The Compose service created more than one container; container-tools manages one instance at a time.\n" : ''), [
+                'operation' => 'create',
+                'summary' => 'Compose instance was created but could not be identified as one container',
+                'requested' => $this->requestedComposeInstance($instance),
+                'compose_project' => $project,
+            ]);
+        }
+        $inspection = $serviceContainers[0];
+
+        return new CommandResult(0, $up->stdout . $listed->stdout, $up->stderr . $listed->stderr, [
+            'operation' => 'create',
+            'summary' => 'Container created from Compose configuration',
+            'container' => $inspection->data['container'],
+            'requested' => $this->requestedComposeInstance($instance),
+            'compose_project' => $project,
+        ]);
+    }
+
     public function start(string $name): CommandResult
     {
         $result = $this->request('POST', $this->path('containers/' . rawurlencode($name) . '/start'));
@@ -687,6 +741,15 @@ final class Podman implements ContainerManagerInterface
             ],
             'publish_exposed_ports' => $container->publishExposedPorts,
             'pasta_auto_publish' => $container->pastaAutoPublish,
+        ];
+    }
+
+    private function requestedComposeInstance(ComposeInstanceDefinition $instance): array
+    {
+        return [
+            'compose_file' => $instance->file,
+            'compose_service' => $instance->service,
+            'name' => $instance->name,
         ];
     }
 

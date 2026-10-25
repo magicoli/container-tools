@@ -1,0 +1,17 @@
+services:
+  instance:
+    image: docker.io/library/alpine:3.24
+    container_name: ${CONTAINER_TOOLS_CONTAINER_NAME:?container-tools must provide a container name}
+    network_mode: bridge
+    command: ["sh", "-c", "sleep 300"]
+    environment:
+      CONTAINER_TOOLS_COMPOSE_TEST: enabled
+    labels:
+      test.configuration: compose
+    ports:
+      - "127.0.0.1::8080"
+    volumes:
+      - type: bind
+        source: ./instance.txt
+        target: /etc/container-tools-instance.txt
+        read_only: true

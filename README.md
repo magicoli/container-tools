@@ -42,6 +42,49 @@ Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. 
 - `destroy NAME` removes a container, stopping it first if needed.
 - `image-pull IMAGE` downloads an image explicitly before creation.
 - `network create|inspect|destroy` manages Podman networks for containers that need a direct network address.
+- `create --compose-file FILE --service NAME [--name INSTANCE]` creates one container from a service in a Compose file. Compose holds the service's image, ports, volumes, configuration files, environment and command; the normal `start`, `stop`, `exec`, `status` and `destroy` operations remain available afterward.
+
+### Compose instance configuration
+
+Use the Compose Specification for runtime settings instead of translating them into a second container-tools configuration language. Podman's `compose` command delegates the file to its configured Compose provider, so a provider must be installed alongside Podman. This library calls `podman compose`; the selected provider follows Podman's `PODMAN_COMPOSE_PROVIDER` or `containers.conf` setting.
+
+```yaml
+services:
+  caddy:
+    image: docker.io/library/caddy:2-alpine
+    container_name: ${CONTAINER_TOOLS_CONTAINER_NAME:?pass --name to container-tools}
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+```
+
+Create the configured instance; `--name` is available to Compose interpolation as `CONTAINER_TOOLS_CONTAINER_NAME`:
+
+```bash
+./bin/container-tools create --name web --compose-file ./compose.yaml --service caddy
+./bin/container-tools status web
+./bin/container-tools exec web -- caddy version
+./bin/container-tools destroy web
+```
+
+The PHP API accepts the same standard file and service selection. `createFromCompose()` creates the service without starting it, just like `create()`; call `start()` when it is ready:
+
+```php
+use Magicoli\ContainerTools\Container\ComposeInstanceDefinition;
+use Magicoli\ContainerTools\Container\Driver\Podman;
+
+$podman = new Podman();
+$created = $podman->createFromCompose(new ComposeInstanceDefinition(
+    file: __DIR__ . '/compose.yaml',
+    service: 'caddy',
+    name: 'web',
+));
+$podman->start($created->data['container']['name']);
+```
+
+Compose provider-specific support is determined by the provider installed on the Podman host. The integration tests verify the actual container configuration through Podman's REST API and pass with both Docker Compose and `podman-compose` as Podman's configured provider.
 
 ## Container networking
 
@@ -171,4 +214,4 @@ The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples sha
 
 ## Tests
 
-`composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, creates uniquely named containers, exercises their lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--connection NAME` to select a configured Podman connection.
+`composer test` runs unit tests and real Podman integration tests. Podman, a configured Compose provider, PHP with cURL, and `tar` are required. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, checks a Compose-configured instance, exercises lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--connection NAME` to select a configured Podman connection.

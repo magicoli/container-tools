@@ -1,6 +1,7 @@
 <?php
 
 use Magicoli\ContainerTools\Container\ContainerDefinition;
+use Magicoli\ContainerTools\Container\ComposeInstanceDefinition;
 use Magicoli\ContainerTools\Container\Driver\Podman;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
 use Magicoli\ContainerTools\Container\PortForward;
@@ -117,6 +118,79 @@ describe('Podman integration', function () {
             expect($podman->stop($name)->status)->toBe(0);
             expect(trim($podman->status($name)->stdout))->toBe('exited');
             expect($podman->start($name)->status)->toBe(0);
+        } finally {
+            if ($created) {
+                $podman->destroy($name);
+            }
+        }
+    });
+
+    test('PHP creates an instance using Compose runtime configuration', function () {
+        $podman = integration_podman();
+        $name = integration_name('compose');
+        $created = false;
+
+        try {
+            $configuration = __DIR__ . '/../fixtures/compose-instance/compose.yaml';
+            $created = true;
+            $result = $podman->createFromCompose(new ComposeInstanceDefinition($configuration, 'instance', $name));
+            expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+            $container = $result->data['container'];
+            expect($container['name'])->toBe($name);
+            expect($container['status'])->toBe('created');
+            expect($container['api']['Config']['Image'])->toBe('docker.io/library/alpine:3.24');
+            expect($container['api']['Config']['Env'])->toContain('CONTAINER_TOOLS_COMPOSE_TEST=enabled');
+            expect($container['api']['Config']['Labels'])->toMatchArray(['test.configuration' => 'compose']);
+            $instanceMount = array_values(array_filter(
+                $container['api']['Mounts'],
+                static fn (array $mount): bool => ($mount['Destination'] ?? null) === '/etc/container-tools-instance.txt',
+            ));
+            expect($instanceMount)->toHaveCount(1);
+            expect($instanceMount[0]['Source'])->toBe(realpath(dirname($configuration) . '/instance.txt'));
+            expect($instanceMount[0]['RW'])->toBeFalse();
+            expect($container['api']['NetworkSettings']['Ports']['8080/tcp'][0]['HostIp'])->toBe('127.0.0.1');
+            expect($container['api']['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort'])->not->toBe('');
+            expect($podman->start($name)->status)->toBe(0);
+            expect(trim($podman->status($name)->stdout))->toBe('running');
+            expect(trim($podman->exec($name, ['cat', '/etc/container-tools-instance.txt'])->stdout))->toBe('compose-instance-config');
+        } finally {
+            if ($created) {
+                $podman->destroy($name);
+            }
+        }
+    });
+
+    test('Bash CLI creates and starts a Compose-configured instance', function () {
+        $podman = integration_podman();
+        $name = integration_name('compose-cli');
+        $created = false;
+
+        try {
+            $created = true;
+            $cli = dirname(__DIR__, 2) . '/bin/container-tools';
+            $configuration = __DIR__ . '/../fixtures/compose-instance/compose.yaml';
+            $process = proc_open([
+                $cli,
+                'create',
+                '--name=' . $name,
+                '--compose-file=' . $configuration,
+                '--service=instance',
+            ], [
+                0 => ['file', '/dev/null', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ], $pipes);
+            expect(is_resource($process))->toBeTrue('Could not start the container-tools CLI');
+            $stdout = stream_get_contents($pipes[1]);
+            $stderr = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $status = proc_close($process);
+
+            expect($status)->toBe(0, $stderr . $stdout);
+            expect($stdout)->toContain('Name: ' . $name);
+            expect($stdout)->toContain('Status: running');
+            expect(trim($podman->exec($name, ['cat', '/etc/container-tools-instance.txt'])->stdout))->toBe('compose-instance-config');
         } finally {
             if ($created) {
                 $podman->destroy($name);

@@ -20,6 +20,8 @@ interface ContainerManagerInterface
 
     public function create(ContainerDefinition $container): CommandResult;
 
+    public function createFromCompose(ComposeInstanceDefinition $instance): CommandResult;
+
     public function start(string $name): CommandResult;
 
     public function stop(string $name): CommandResult;
