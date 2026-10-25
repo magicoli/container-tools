@@ -2,18 +2,20 @@
 
 This guide is for contributors to `magicoli/container-tools` and developers integrating it into another application.
 
+The complete PHP method and result contracts are in [docs/php-api.md](docs/php-api.md). Keep that reference and public PHPDoc synchronized with implementation changes.
+
 ## What this package provides
 
 `container-tools` is an independent, framework-agnostic PHP library and shell command adapter for managing Podman containers. It is the host-side integration point for applications that need to create and control containers without installing a domain package on the machine running the installer or administrator command.
 
-For example, `opensim-cli` can call this package from the machine where `quick-install.sh` or the CLI runs, while selecting a local or remote Podman host. Do not route that host-side work through `opensim-engine`: the engine may be installed inside the target environment, and installing it on the installer/admin host would couple the two environments incorrectly. `opensim-engine` may also use the PHP library for its own container operations; it is a consumer, not a prerequisite for the library.
+An installer, administrator CLI, or service manager can call this package from its own host while selecting a local or remote Podman host. The target does not need the consuming application's other runtime libraries installed just for the host to manage its containers.
 
 The package provides two entry points over the same container-management domain:
 
 - **PHP API** for applications that need typed definitions, structured results, and direct lifecycle calls.
 - **`container-tools` command** for shell scripts, installers, and terminal workflows. It is a supported integration surface, not merely a demo of the PHP API.
 
-For `opensim-cli`, this host-side command path is essential: the installer or administrator command invokes `container-tools` from its own terminal/process and targets the selected Podman host. The target does not need `opensim-engine` installed for the host to manage its containers.
+The host-side command path is useful when the caller is a shell installer or terminal-facing CLI: it invokes `container-tools` from its own process and targets the selected Podman host.
 
 Both currently use Podman. Compose and Kube Play are separate Podman modules because their resource lifecycles differ from individual containers. Do not add a second container runtime or deployment format by duplicating existing transport and lifecycle logic; extend the relevant driver or module boundary.
 
@@ -101,7 +103,7 @@ Use the returned structured `data` for IDs, assigned names, effective ports, lif
 
 Use a module when the resource has semantics beyond a single container:
 
-- **Compose**: `Container\Module\Compose\PodmanCompose` delegates to Podman's configured Compose provider. The provider must be available on the selected Podman host. `ComposeInstanceDefinition` selects the file, service, and optional container name; the command adapter also supports `create --compose-file ... --service ...`.
+- **Compose**: `Container\Module\Compose\PodmanCompose` invokes `podman compose` and its configured provider on the client host. `ComposeInstanceDefinition` selects the file, service, and optional container name; the command adapter also supports `create --compose-file ... --service ...`.
 - **Kube Play**: `Container\Module\KubePlay\PodmanKubePlay` accepts a `KubePlayDefinition` and exposes `play()` / `down()`. The manifest is read on the caller side and streamed to the selected Podman host; networks are explicit.
 
 Do not force Compose or Kube Play into `ContainerManagerInterface` lifecycle methods if that would hide pod-level or multi-resource behavior. A future format such as Quadlet should get a module with its own truthful API.

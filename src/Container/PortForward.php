@@ -6,8 +6,17 @@ namespace Magicoli\ContainerTools\Container;
 
 use InvalidArgumentException;
 
+/** One host-to-container TCP or UDP port mapping. */
 final readonly class PortForward
 {
+    /**
+     * @param int|null $hostPort Requested host port; null asks the engine to choose one.
+     * @param int $containerPort Port inside the container.
+     * @param string $protocol tcp or udp (case-insensitive).
+     * @param string|null $hostIp Optional host address to bind.
+     *
+     * @throws InvalidArgumentException When a port, protocol, or host address is invalid.
+     */
     public function __construct(
         public ?int $hostPort,
         public int $containerPort,
@@ -25,11 +34,13 @@ final readonly class PortForward
         }
     }
 
+    /** Return the normalized lowercase protocol. */
     public function protocol(): string
     {
         return strtolower($this->protocol);
     }
 
+    /** Parse exactly one mapping in the CLI mapping syntax. */
     public static function parse(string $value): self
     {
         $forwards = self::parseList($value);
@@ -39,7 +50,12 @@ final readonly class PortForward
         return $forwards[0];
     }
 
-    /** @return list<self> */
+    /**
+     * Parse comma-separated ports and ranges into individual mappings.
+     *
+     * @return list<self>
+     * @throws InvalidArgumentException When the mapping syntax or ranges are invalid.
+     */
     public static function parseList(string $value): array
     {
         $forwards = [];

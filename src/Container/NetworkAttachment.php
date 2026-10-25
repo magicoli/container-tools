@@ -6,8 +6,14 @@ namespace Magicoli\ContainerTools\Container;
 
 use InvalidArgumentException;
 
+/** Select a network and optional fixed addresses for a container. */
 final readonly class NetworkAttachment
 {
+    /**
+     * @param string $name Existing network name or supported network mode.
+     * @param string|null $ipv4 Optional fixed IPv4 address on that network.
+     * @param string|null $ipv6 Optional fixed IPv6 address on that network.
+     */
     public function __construct(
         public string $name,
         public ?string $ipv4 = null,

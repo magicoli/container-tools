@@ -6,8 +6,18 @@ namespace Magicoli\ContainerTools\Container;
 
 use InvalidArgumentException;
 
+/** Immutable configuration for creating a Podman network. */
 final readonly class NetworkDefinition
 {
+    /**
+     * @param string $driver bridge, macvlan, or ipvlan.
+     * @param string|null $parent Parent interface for macvlan or ipvlan.
+     * @param string $ipamDriver host-local, dhcp, or none.
+     * @param string|null $ipv4Subnet IPv4 subnet in CIDR notation.
+     * @param string|null $ipv4Gateway IPv4 gateway; requires ipv4Subnet.
+     * @param string|null $ipv6Subnet IPv6 subnet in CIDR notation; requires ipv6Enabled.
+     * @param string|null $ipv6Gateway IPv6 gateway; requires ipv6Subnet.
+     */
     public function __construct(
         public string $name,
         public string $driver = 'bridge',

@@ -46,7 +46,7 @@ Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. 
 
 ### Compose instance configuration
 
-Use the Compose Specification for runtime settings instead of translating them into a second container-tools configuration language. Podman's `compose` command delegates the file to its configured Compose provider, so a provider must be installed alongside Podman. This library calls `podman compose`; the selected provider follows Podman's `PODMAN_COMPOSE_PROVIDER` or `containers.conf` setting.
+Use the Compose Specification for runtime settings instead of translating them into a second container-tools configuration language. Podman's `compose` command delegates the file to its configured Compose provider, which must be installed on the client host where `podman compose` runs. This library calls `podman compose`; the selected provider follows Podman's `PODMAN_COMPOSE_PROVIDER` or `containers.conf` setting.
 
 ```yaml
 services:
@@ -84,7 +84,7 @@ $created = $podman->createFromCompose(new ComposeInstanceDefinition(
 $podman->start($created->data['container']['name']);
 ```
 
-Compose provider-specific support is determined by the provider installed on the Podman host. The integration tests verify the actual container configuration through Podman's REST API and pass with both Docker Compose and `podman-compose` as Podman's configured provider. The implementation is in `Container\Module\Compose`; `Podman` uses it when a caller asks to create a single container from a Compose service.
+Compose provider-specific support is determined by the provider installed on the client host. The integration tests verify the actual container configuration through Podman's REST API and pass with both Docker Compose and `podman-compose` as Podman's configured provider. The implementation is in `Container\Module\Compose`; `Podman` uses it when a caller asks to create a single container from a Compose service.
 
 ### Kube Play
 
@@ -142,7 +142,7 @@ Ranges are expanded into individual mappings. A range without a colon uses the s
 ```bash
 ./bin/container-tools create --name services --image docker.io/library/alpine:3.24 \
   --publish=8080:80,8022:22,8443:443
-./bin/container-tools create --name opensim-ports --image docker.io/library/alpine:3.24 \
+./bin/container-tools create --name app-ports --image docker.io/library/alpine:3.24 \
   --publish=8002-8100,9000-9100
 ./bin/container-tools create --name random-ports --image docker.io/library/alpine:3.24 \
   --publish=:8002-8100
@@ -163,12 +163,12 @@ On a Linux Podman host, create a macvlan network on the physical LAN interface a
 
 ```bash
 sudo systemctl enable --now netavark-dhcp-proxy.socket
-sudo ./bin/container-tools network create --name opensim-lan --driver macvlan --parent enp3s0 --ipam dhcp
-sudo ./bin/container-tools create --name opensim-1 --image localhost/opensim:latest --network opensim-lan
-sudo ./bin/container-tools status opensim-1
+sudo ./bin/container-tools network create --name app-lan --driver macvlan --parent enp3s0 --ipam dhcp
+sudo ./bin/container-tools create --name app-server --image localhost/app:latest --network app-lan
+sudo ./bin/container-tools status app-server
 ```
 
-Use the address printed for the `opensim-lan` network to reach the container directly; no host-port mapping is involved. Omit `--parent` to let Podman use the default route interface. The DHCP IPAM mode needs Podman's `netavark-dhcp-proxy.socket`. It obtains an IPv4 lease; Podman's current DHCP IPAM does not promise a DHCPv6 lease, so use a static IPv6 address or router-advertised addressing when IPv6 is needed.
+Use the address printed for the `app-lan` network to reach the container directly; no host-port mapping is involved. Omit `--parent` to let Podman use the default route interface. The DHCP IPAM mode needs Podman's `netavark-dhcp-proxy.socket`. It obtains an IPv4 lease; Podman's current DHCP IPAM does not promise a DHCPv6 lease, so use a static IPv6 address or router-advertised addressing when IPv6 is needed.
 
 ### Direct fixed IPv4 and/or IPv6
 
@@ -176,11 +176,11 @@ Create a macvlan network with the LAN's actual subnets and gateways, then choose
 
 ```bash
 sudo ./bin/container-tools network create \
-  --name opensim-fixed --driver macvlan --parent enp3s0 --ipam host-local \
+  --name app-fixed --driver macvlan --parent enp3s0 --ipam host-local \
   --ipv4-subnet 192.168.1.0/24 --ipv4-gateway 192.168.1.1 \
   --ipv6-subnet 2001:db8:1234::/64 --ipv6-gateway 2001:db8:1234::1 --ipv6
-sudo ./bin/container-tools create --name opensim-2 --image localhost/opensim:latest \
-  --network opensim-fixed --ip4 192.168.1.52 --ip6 2001:db8:1234::52
+sudo ./bin/container-tools create --name app-server-fixed --image localhost/app:latest \
+  --network app-fixed --ip4 192.168.1.52 --ip6 2001:db8:1234::52
 ```
 
 Omit either subnet/gateway pair and its corresponding `--ip4` or `--ip6` option to use only IPv4 or IPv6. Replace the documentation IPv6 range above with a prefix routed to the host; `2001:db8::/32` is reserved for examples and is not publicly routable.
@@ -190,13 +190,13 @@ These direct-LAN modes depend on the Linux host's network, permissions, interfac
 Remove a direct network after removing all containers attached to it:
 
 ```bash
-sudo ./bin/container-tools destroy opensim-2
-sudo ./bin/container-tools network destroy opensim-fixed
+sudo ./bin/container-tools destroy app-server-fixed
+sudo ./bin/container-tools network destroy app-fixed
 ```
 
 ## PHP
 
-The library keeps the lifecycle operations explicit so PHP callers can decide when to create, start, and wait for readiness:
+The library keeps lifecycle operations explicit so PHP callers can decide when to create, start, and wait for readiness. See the [PHP API reference](docs/php-api.md) for method contracts, parameters, result fields, and failure behavior.
 
 ```php
 use Magicoli\ContainerTools\Container\ContainerDefinition;
@@ -247,7 +247,7 @@ The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples sha
 
 # Roadmap
 
-- [ ] OpenAPI specifications
+- [x] PHP API reference and PHPDoc contracts
 - [ ] AI skills
 - [ ] [Quadlet support](https://www.stephane-robert.info/docs/conteneurs/moteurs-conteneurs/podman/quadlet/)
 - [ ] Pools: pools of connections to choose from, with best guess (load, cpu, memory...)

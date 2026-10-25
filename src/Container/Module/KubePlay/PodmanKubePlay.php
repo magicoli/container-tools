@@ -6,16 +6,19 @@ namespace Magicoli\ContainerTools\Container\Module\KubePlay;
 
 use Magicoli\ContainerTools\Container\CommandResult;
 
-/** Runs Podman's kube play/kube down against the selected local or remote engine. */
+/** Runs the Podman CLI's kube play/kube down commands against the selected local or remote host. */
 final class PodmanKubePlay
 {
+    /** @param string|null $connection Configured Podman connection name; defaults to CONTAINER_CONNECTION. */
     public function __construct(private readonly ?string $connection = null) {}
 
+    /** Deploy the resources declared by the manifest. */
     public function play(KubePlayDefinition $definition): CommandResult
     {
         return $this->run($definition, false);
     }
 
+    /** Remove the resources declared by the manifest. */
     public function down(KubePlayDefinition $definition): CommandResult
     {
         return $this->run($definition, true);

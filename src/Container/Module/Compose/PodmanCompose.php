@@ -6,14 +6,19 @@ namespace Magicoli\ContainerTools\Container\Module\Compose;
 
 use Magicoli\ContainerTools\Container\CommandResult;
 
-/** Runs the Compose provider selected by Podman's standard `podman compose` command. */
+/** Runs the Compose provider selected by Podman's standard `podman compose` command on the client host. */
 final class PodmanCompose
 {
+    /**
+     * @param string|null $connection Configured Podman connection name.
+     * @param string|null $dockerHost API endpoint passed to the Compose provider.
+     */
     public function __construct(
         private readonly ?string $connection = null,
         private readonly ?string $dockerHost = null,
     ) {}
 
+    /** Create the selected service without starting it; returns provider output and exit status. */
     public function up(string $file, string $service, string $project, ?string $containerName): CommandResult
     {
         $file = realpath($file) ?: $file;

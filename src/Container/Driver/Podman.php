@@ -18,7 +18,13 @@ use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
 
-/** Podman adapter using its official Docker-compatible REST API. */
+/**
+ * Podman adapter using Podman's Docker-compatible REST API.
+ *
+ * Operations return CommandResult for both engine and transport failures.
+ * Construction throws when cURL is unavailable, connection resolution fails,
+ * or no compatible API version can be negotiated.
+ */
 final class Podman implements ContainerManagerInterface
 {
     private readonly PodmanConnection $connection;
@@ -27,6 +33,11 @@ final class Podman implements ContainerManagerInterface
     private readonly ?string $connectionName;
     private readonly ?string $composeHost;
 
+    /**
+     * @param string|null $connection Configured Podman connection name; defaults to CONTAINER_CONNECTION.
+     * @param ClientInterface|null $httpClient Optional PSR-18 client, primarily for tests.
+     * @throws \RuntimeException If the API endpoint cannot be resolved or reached.
+     */
     public function __construct(?string $connection = null, ?ClientInterface $httpClient = null)
     {
         $this->connectionName = $connection ?? (getenv('CONTAINER_CONNECTION') ?: null);
@@ -52,11 +63,13 @@ final class Podman implements ContainerManagerInterface
         $this->apiVersion = $this->negotiateApiVersion();
     }
 
+    /** A failed lookup, including a connection failure, is reported as false. */
     public function imageAvailable(string $image): bool
     {
         return $this->request('GET', $this->path('images/' . rawurlencode($image) . '/json'))->succeeded();
     }
 
+    /** @return CommandResult data includes operation, summary, image, and pulled. */
     public function pull(string $image): CommandResult
     {
         if ($this->imageAvailable($image)) {
@@ -66,6 +79,7 @@ final class Podman implements ContainerManagerInterface
         return $result->withData(['operation' => 'image-pull', 'summary' => $result->succeeded() ? 'Image pulled' : 'Image pull failed', 'image' => $image, 'pulled' => true]);
     }
 
+    /** @return CommandResult data includes operation, summary, image, cache stats, and build outcome. */
     public function build(ImageBuildDefinition $image): CommandResult
     {
         $file = realpath($image->file);
@@ -174,6 +188,7 @@ final class Podman implements ContainerManagerInterface
         }
     }
 
+    /** @return CommandResult data includes operation, summary, network, and requested definition. */
     public function createNetwork(NetworkDefinition $network): CommandResult
     {
         $ipamConfig = [];
@@ -204,6 +219,7 @@ final class Podman implements ContainerManagerInterface
         ]);
     }
 
+    /** @return CommandResult data includes operation, summary, and network. */
     public function inspectNetwork(string $name): CommandResult
     {
         $result = $this->request('GET', $this->path('networks/' . rawurlencode($name)));
@@ -215,6 +231,7 @@ final class Podman implements ContainerManagerInterface
         ]);
     }
 
+    /** @return CommandResult data includes operation, summary, and network name. */
     public function destroyNetwork(string $name): CommandResult
     {
         $result = $this->request('DELETE', $this->path('networks/' . rawurlencode($name)));
@@ -225,6 +242,12 @@ final class Podman implements ContainerManagerInterface
         ]);
     }
 
+    /**
+     * Create but do not start a container. Pulls the image if necessary.
+     *
+     * @return CommandResult On success data includes the inspected container, request,
+     *                       image pull state, and effective port publication details.
+     */
     public function create(ContainerDefinition $container): CommandResult
     {
         $directNetwork = false;
@@ -391,6 +414,7 @@ final class Podman implements ContainerManagerInterface
         ]);
     }
 
+    /** Create one stopped service container; provider must be configured for Podman. */
     public function createFromCompose(ComposeInstanceDefinition $instance): CommandResult
     {
         $project = 'container-tools-' . bin2hex(random_bytes(6));
@@ -442,18 +466,21 @@ final class Podman implements ContainerManagerInterface
         ]);
     }
 
+    /** @return CommandResult data includes operation, summary, and post-operation container details when available. */
     public function start(string $name): CommandResult
     {
         $result = $this->request('POST', $this->path('containers/' . rawurlencode($name) . '/start'));
         return $this->lifecycleResult($result, 'start', 'Container started', $name);
     }
 
+    /** @return CommandResult data includes operation, summary, and post-operation container details when available. */
     public function stop(string $name): CommandResult
     {
         $result = $this->request('POST', $this->path('containers/' . rawurlencode($name) . '/stop'));
         return $this->lifecycleResult($result, 'stop', 'Container stopped', $name);
     }
 
+    /** @return CommandResult success data includes the normalized container details and raw API document. */
     public function inspect(string $name): CommandResult
     {
         $result = $this->request('GET', $this->path('containers/' . rawurlencode($name) . '/json'));
@@ -467,6 +494,7 @@ final class Podman implements ContainerManagerInterface
         return $result->withData(['operation' => 'inspect', 'summary' => 'Container details', 'container' => $this->details($details)]);
     }
 
+    /** @return CommandResult success data includes operation, summary, and normalized container details. */
     public function status(string $name): CommandResult
     {
         $inspection = $this->inspect($name);
@@ -477,6 +505,7 @@ final class Podman implements ContainerManagerInterface
         return new CommandResult(0, $status . "\n", data: ['operation' => 'status', 'summary' => 'Container status', 'container' => $inspection->data['container']]);
     }
 
+    /** @param list<string> $probe Command and arguments executed repeatedly without a shell. */
     public function waitUntilReady(string $name, array $probe, int $timeoutSeconds = 30, int $intervalMicroseconds = 250_000): CommandResult
     {
         $deadline = microtime(true) + $timeoutSeconds;
@@ -493,6 +522,7 @@ final class Podman implements ContainerManagerInterface
         } while (true);
     }
 
+    /** @param non-empty-list<string> $command Command and arguments; execution is non-interactive. */
     public function exec(string $name, array $command): CommandResult
     {
         $created = $this->request('POST', $this->path('containers/' . rawurlencode($name) . '/exec'), [
@@ -520,6 +550,7 @@ final class Podman implements ContainerManagerInterface
         return new CommandResult($exitCode, $stdout, $stderr, ['operation' => 'exec', 'summary' => $exitCode === 0 ? 'Command executed in container' : 'Command failed in container', 'container' => ['reference' => $name], 'exit_code' => $exitCode]);
     }
 
+    /** @return CommandResult data includes operation, summary, and pre-removal container details. */
     public function destroy(string $name): CommandResult
     {
         $inspection = $this->inspect($name);

@@ -10,7 +10,9 @@ use InvalidArgumentException;
 final readonly class KubePlayDefinition
 {
     /**
+     * @param string $file Kubernetes YAML path on the client host.
      * @param list<string> $networks Podman networks to attach to the created pod.
+     * @param bool $replace Replace existing resources when playing the manifest.
      */
     public function __construct(
         public string $file,

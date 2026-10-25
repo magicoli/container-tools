@@ -6,9 +6,14 @@ namespace Magicoli\ContainerTools\Container;
 
 use InvalidArgumentException;
 
-/** Selects one service from a standard Compose file as a container instance. */
+/** Select one service from a Compose file for creation as a container instance. */
 final readonly class ComposeInstanceDefinition
 {
+    /**
+     * @param string $file Compose file path on the client host.
+     * @param string $service Service to select from the file.
+     * @param string|null $name Optional container name exposed to Compose interpolation.
+     */
     public function __construct(
         public string $file,
         public string $service,

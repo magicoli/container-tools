@@ -13,3 +13,4 @@
 - feat: build images from Containerfiles
 - docs: document consumer integration boundaries and library usage
 - docs: add a shared Agent Skills guide for integrating container-tools
+- docs: define public PHP API contracts and reference
