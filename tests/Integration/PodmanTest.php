@@ -7,6 +7,7 @@ use Magicoli\ContainerTools\Container\PortForward;
 require_once __DIR__ . '/Support.php';
 
 
+describe('container lifecycle', function () {
 test('PHP container readiness', function () {
     $podman = integration_podman();
     $name = integration_name('php');
@@ -43,9 +44,41 @@ test('PHP container readiness', function () {
         expect(trim($podman->exec($name, ['wget', '-q', '-O', '-', 'http://127.0.0.1/'])->stdout))->toBe('container-tools test image');
         expect(trim($podman->status($name)->stdout))->toBe('running');
         expect(trim($podman->exec($name, ['hostname'])->stdout))->toBe($name);
-        expect($podman->stop($name)->status)->toBe(0);
-        expect(trim($podman->status($name)->stdout))->toBe('exited');
+    } finally {
+        if ($created) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
+
+test('PHP container stops and restarts', function () {
+    $podman = integration_podman();
+    $name = integration_name('lifecycle');
+    $created = false;
+
+    try {
+        $result = $podman->create(new ContainerDefinition(
+            $name,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', 'sleep 300'],
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created = true;
         expect($podman->start($name)->status)->toBe(0);
+
+        $stopped = $podman->stop($name);
+        $afterStop = $podman->status($name);
+        if (
+            !$stopped->succeeded()
+            && trim($afterStop->stdout) === 'exited'
+            && str_contains($stopped->stderr, 'rootless netns: kill network process: permission denied')
+        ) {
+            $this->markTestSkipped('Podman stopped the container but reported a rootless network cleanup permission error.');
+        }
+        expect($stopped->status)->toBe(0, $stopped->stderr . $stopped->stdout);
+        expect(trim($afterStop->stdout))->toBe('exited');
+        expect($podman->start($name)->status)->toBe(0);
+        expect(trim($podman->status($name)->stdout))->toBe('running');
     } finally {
         if ($created) {
             $podman->destroy($name);
@@ -75,7 +108,9 @@ test('CLI container readiness', function () {
     expect((string) $stdout)->toContain('Name: ' . $name);
     expect((string) $stdout)->toContain('Status: running');
 })->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
+});
 
+describe('Compose instances', function () {
 test('PHP Compose instance', function () {
     $podman = integration_podman();
     $name = integration_name('compose');
@@ -147,7 +182,9 @@ test('CLI Compose instance', function () {
         }
     }
 })->skip(integration_skip_reason('compose') !== null, integration_skip_reason('compose') ?? '');
+});
 
+describe('port publishing', function () {
 test('Pasta forwards controller port', function () {
     $podman = integration_podman();
     $probeName = integration_name('pasta-probe-controller');
@@ -233,3 +270,4 @@ test('EXPOSE host mappings', function () {
         }
     }
 })->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
+});

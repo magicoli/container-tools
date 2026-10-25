@@ -94,6 +94,43 @@ function integration_podman_is_rootless(): bool
     return is_array($info) && (($info['host']['security']['rootless'] ?? $info['Host']['Security']['Rootless'] ?? false) === true);
 }
 
+function integration_host_has_nc(): bool
+{
+    static $available = null;
+    if ($available !== null) {
+        return $available;
+    }
+
+    $command = ['sh', '-c', 'command -v nc >/dev/null 2>&1'];
+    $uri = integration_selected_connection_uri();
+    if ($uri !== null && str_starts_with($uri, 'ssh://')) {
+        $parts = parse_url($uri);
+        if (!is_array($parts) || empty($parts['host'])) {
+            return $available = false;
+        }
+
+        $target = (isset($parts['user']) ? $parts['user'] . '@' : '') . $parts['host'];
+        $command = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-p', (string) ($parts['port'] ?? 22)];
+        $identity = integration_selected_connection_identity();
+        if ($identity !== null) {
+            array_push($command, '-i', $identity);
+        }
+        $command[] = $target;
+        $command[] = 'command -v nc >/dev/null 2>&1';
+    }
+
+    $process = @proc_open($command, [
+        0 => ['file', '/dev/null', 'r'],
+        1 => ['file', '/dev/null', 'w'],
+        2 => ['file', '/dev/null', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) {
+        return $available = false;
+    }
+
+    return $available = proc_close($process) === 0;
+}
+
 function integration_podman_command(array $arguments): array
 {
     $command = [getenv('PODMAN_BINARY') ?: 'podman'];
@@ -225,6 +262,10 @@ function integration_skip_reason(string $feature = ''): ?string
 
     if ($feature === 'pasta' && !integration_podman_is_rootless()) {
         return 'pasta automatic port forwarding requires rootless Podman on the selected connection.';
+    }
+
+    if ($feature === 'pasta' && !integration_host_has_nc()) {
+        return 'Pasta port checks require nc on the selected Podman host.';
     }
 
     return null;
