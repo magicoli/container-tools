@@ -252,3 +252,7 @@ The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples sha
 - [ ] [Quadlet support](https://www.stephane-robert.info/docs/conteneurs/moteurs-conteneurs/podman/quadlet/)
 - [ ] Pools: pools of connections to choose from, with best guess (load, cpu, memory...)
 - [ ] Quota: limit usage per pool, categories, host, ...
+
+## Contributing and integration
+
+See [DEVELOPERS.md](DEVELOPERS.md) for the PHP API, shell command integration, connection configuration, and guidance for consuming applications. A reusable Agent Skills guide is available at [`.agents/skills/container-tools-integration/SKILL.md`](.agents/skills/container-tools-integration/SKILL.md).

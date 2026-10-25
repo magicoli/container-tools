@@ -11,3 +11,5 @@
 - feat: support port mapping lists and improve help
 - feat: port and direct network modes
 - feat: build images from Containerfiles
+- docs: document consumer integration boundaries and library usage
+- docs: add a shared Agent Skills guide for integrating container-tools
