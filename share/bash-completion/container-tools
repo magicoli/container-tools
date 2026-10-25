@@ -131,23 +131,24 @@ _container_tools() {
 	esac
 
 	if [[ $cur == -* ]]; then
-		suggestions='--help --verbose --quiet --dry-run --connection'
+		suggestions=
 		case $command:$subcommand in
 			:)
-				suggestions+=' image-pull build create start stop status wait-ready exec destroy network'
+				suggestions='image-pull build create start stop status wait-ready exec destroy network --help --verbose --quiet --dry-run --connection'
 				;;
 			build:)
-				suggestions+=' --file --tag --from --no-cache'
+				suggestions='--file --tag --from --no-cache --help --verbose --quiet --dry-run --connection'
 				;;
 			create:)
-				suggestions+=' --name --image --compose-file --service --hostname --memory --label --publish --no-publish-defaults --network --pasta-auto-publish --ip4 --ip6 --no-start'
+				suggestions='--name --image --compose-file --service --hostname --memory --label --publish --no-publish-defaults --network --pasta-auto-publish --ip4 --ip6 --no-start --help --verbose --quiet --dry-run --connection'
 				;;
 			network:)
-				suggestions+=' create inspect destroy'
+				suggestions='create inspect destroy --help --verbose --quiet --dry-run --connection'
 				;;
 			network:create)
-				suggestions+=' --name --driver --parent --ipam --ipv4-subnet --ipv4-gateway --ipv6-subnet --ipv6-gateway --ipv6'
+				suggestions='--name --driver --parent --ipam --ipv4-subnet --ipv4-gateway --ipv6-subnet --ipv6-gateway --ipv6 --help --verbose --quiet --dry-run --connection'
 				;;
+			*) suggestions='--help --verbose --quiet --dry-run --connection' ;;
 		esac
 		suggestions=$(_container_tools_filter_used "$suggestions")
 		COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
@@ -155,36 +156,36 @@ _container_tools() {
 	fi
 
 	if [[ -z $command ]]; then
-		suggestions=$(_container_tools_filter_used '--help --verbose --quiet --dry-run --connection image-pull build create start stop status wait-ready exec destroy network')
+		suggestions=$(_container_tools_filter_used 'image-pull build create start stop status wait-ready exec destroy network --help --verbose --quiet --dry-run --connection')
 		COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
 		return
 	fi
 
 	case $command:$subcommand in
 		network:)
-			suggestions='--help --verbose --quiet --dry-run --connection create inspect destroy'
+			suggestions='create inspect destroy --help --verbose --quiet --dry-run --connection'
 			;;
 		network:inspect|network:destroy)
-			suggestions="--help --verbose --quiet --dry-run --connection $(_container_tools_values --network "$connection")"
+			suggestions="$(_container_tools_values --network "$connection") --help --verbose --quiet --dry-run --connection"
 			;;
 		start:|stop:|status:|wait-ready:|exec:|destroy:)
-			suggestions="--help --verbose --quiet --dry-run --connection $(_container_tools_values --name "$connection")"
+			suggestions="$(_container_tools_values --name "$connection") --help --verbose --quiet --dry-run --connection"
 			;;
 		image-pull:)
-			suggestions="--help --verbose --quiet --dry-run --connection $(_container_tools_values --image "$connection")"
+			suggestions="$(_container_tools_values --image "$connection") --help --verbose --quiet --dry-run --connection"
 			;;
 		build:)
 			if [[ -z $cur ]]; then
-				suggestions='--help --verbose --quiet --dry-run --connection --file --tag --from --no-cache'
+				suggestions='--file --tag --from --no-cache --help --verbose --quiet --dry-run --connection'
 			else
 				COMPREPLY=( $(compgen -f -- "$cur") )
 			fi
 			;;
 		create:)
-			suggestions='--help --verbose --quiet --dry-run --connection --name --image --compose-file --service --hostname --memory --label --publish --no-publish-defaults --network --pasta-auto-publish --ip4 --ip6 --no-start'
+			suggestions='--name --image --compose-file --service --hostname --memory --label --publish --no-publish-defaults --network --pasta-auto-publish --ip4 --ip6 --no-start --help --verbose --quiet --dry-run --connection'
 			;;
 		network:create)
-			suggestions='--help --verbose --quiet --dry-run --connection --name --driver --parent --ipam --ipv4-subnet --ipv4-gateway --ipv6-subnet --ipv6-gateway --ipv6'
+			suggestions='--name --driver --parent --ipam --ipv4-subnet --ipv4-gateway --ipv6-subnet --ipv6-gateway --ipv6 --help --verbose --quiet --dry-run --connection'
 			;;
 		start:|stop:|status:|wait-ready:|exec:|destroy:|image-pull:|network:inspect|network:destroy)
 			suggestions='--help --verbose --quiet --dry-run --connection'

@@ -28,7 +28,10 @@ function runContainerToolsCompletion(array $words, ?string $podmanBinary = null)
 }
 
 test('Bash completion lists commands and command options', function () {
-    expect(runContainerToolsCompletion(['container-tools', 'cr']))->toContain('create');
+    $rootSuggestions = runContainerToolsCompletion(['container-tools', '']);
+    expect($rootSuggestions)->toContain('create');
+    expect(array_search('create', $rootSuggestions, true))->toBeLessThan(array_search('--help', $rootSuggestions, true));
+
     expect(runContainerToolsCompletion(['container-tools', 'create', '--p']))
         ->toContain('--publish')
         ->toContain('--pasta-auto-publish');
@@ -41,9 +44,9 @@ test('Bash completion keeps global options available after a command', function 
         ->toContain('--verbose')
         ->toContain('--quiet')
         ->toContain('--dry-run')
-        ->not->toContain('-v')
-        ->not->toContain('-q')
-        ->not->toContain('-d');
+        ->and(array_search('--name', $suggestions, true))->toBeLessThan(array_search('--verbose', $suggestions, true));
+
+    expect($suggestions)->not->toContain('-v')->not->toContain('-q')->not->toContain('-d');
 });
 
 test('Bash completion hides options that were already supplied', function () {
