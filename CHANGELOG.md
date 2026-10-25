@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- fix: preserve command-first completion order with modern Bash
+- feat: add Bash completion for CLI
 
 ### 0.1.0-dev.1
 
