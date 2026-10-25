@@ -199,4 +199,8 @@ _container_tools() {
 	fi
 }
 
-complete -F _container_tools container-tools
+if ((BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4))); then
+	complete -o nosort -F _container_tools container-tools
+else
+	complete -F _container_tools container-tools
+fi

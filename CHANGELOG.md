@@ -2,7 +2,7 @@
 
 ### Unreleased
 
-- fix: list commands before options in Bash completion
+- fix: preserve command-first completion order with modern Bash
 
 ### 0.1.0-dev.1
 

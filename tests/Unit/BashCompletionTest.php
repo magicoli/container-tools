@@ -28,6 +28,18 @@ function runContainerToolsCompletion(array $words, ?string $podmanBinary = null)
 }
 
 test('Bash completion lists commands and command options', function () {
+    $completion = escapeshellarg(dirname(__DIR__, 2) . '/share/bash-completion/container-tools');
+    exec("/bin/bash -c 'source $completion; complete -p container-tools'", $completionOptions);
+    exec('/bin/bash --version | head -1', $bashVersion);
+    preg_match('/version (\d+)\.(\d+)/', $bashVersion[0], $version);
+    $supportsNoSort = (int) $version[1] > 4 || ((int) $version[1] === 4 && (int) $version[2] >= 4);
+
+    if ($supportsNoSort) {
+        expect(implode(' ', $completionOptions))->toContain('-o nosort');
+    } else {
+        expect(implode(' ', $completionOptions))->not->toContain('-o nosort');
+    }
+
     $rootSuggestions = runContainerToolsCompletion(['container-tools', '']);
     expect($rootSuggestions)->toContain('create');
     expect(array_search('create', $rootSuggestions, true))->toBeLessThan(array_search('--help', $rootSuggestions, true));
