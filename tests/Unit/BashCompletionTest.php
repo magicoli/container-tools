@@ -34,6 +34,27 @@ test('Bash completion lists commands and command options', function () {
         ->toContain('--pasta-auto-publish');
 });
 
+test('Bash completion keeps global options available after a command', function () {
+    $suggestions = runContainerToolsCompletion(['container-tools', 'create', '']);
+
+    expect($suggestions)
+        ->toContain('--verbose')
+        ->toContain('--quiet')
+        ->toContain('--dry-run')
+        ->not->toContain('-v')
+        ->not->toContain('-q')
+        ->not->toContain('-d');
+});
+
+test('Bash completion hides options that were already supplied', function () {
+    $suggestions = runContainerToolsCompletion(['container-tools', 'create', '--verbose', '']);
+
+    expect($suggestions)
+        ->not->toContain('--verbose')
+        ->toContain('--quiet')
+        ->toContain('--dry-run');
+});
+
 test('Bash completion supports file options with equals syntax', function () {
     $prefix = dirname(__DIR__, 2) . '/examples/caddy/Cad';
     expect(runContainerToolsCompletion(['container-tools', 'build', "--file=$prefix"]))
