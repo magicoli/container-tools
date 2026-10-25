@@ -11,6 +11,22 @@ function integration_podman(): Podman
     return new Podman();
 }
 
+function integration_compose_provider_available(): bool
+{
+    $process = @proc_open([getenv('PODMAN_BINARY') ?: 'podman', 'compose', 'version'], [
+        0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) {
+        return false;
+    }
+    stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    return proc_close($process) === 0;
+}
+
 function integration_name(string $caller): string
 {
     $host = preg_replace('/[^a-z0-9-]+/', '-', strtolower(gethostname() ?: 'host'));
@@ -158,7 +174,7 @@ describe('Podman integration', function () {
                 $podman->destroy($name);
             }
         }
-    });
+    })->skip(!integration_compose_provider_available(), 'Podman has no Compose provider configured; install Docker Compose or podman-compose.');
 
     test('Bash CLI creates and starts a Compose-configured instance', function () {
         $podman = integration_podman();
@@ -196,7 +212,7 @@ describe('Podman integration', function () {
                 $podman->destroy($name);
             }
         }
-    });
+    })->skip(!integration_compose_provider_available(), 'Podman has no Compose provider configured; install Docker Compose or podman-compose.');
 
     test('image ports receive distinct automatic host mappings when containers overlap', function () {
         $podman = integration_podman();
