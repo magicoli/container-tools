@@ -73,7 +73,7 @@ test('PHP container stops and restarts', function () {
             && trim($afterStop->stdout) === 'exited'
             && str_contains($stopped->stderr, 'rootless netns: kill network process: permission denied')
         ) {
-            $this->markTestSkipped('Podman stopped the container but reported a rootless network cleanup permission error.');
+            $this->markTestSkipped('AppArmor denied pasta SIGTERM from Podman');
         }
         expect($stopped->status)->toBe(0, $stopped->stderr . $stopped->stdout);
         expect(trim($afterStop->stdout))->toBe('exited');

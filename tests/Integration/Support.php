@@ -265,7 +265,7 @@ function integration_skip_reason(string $feature = ''): ?string
     }
 
     if ($feature === 'pasta' && !integration_host_has_nc()) {
-        return 'Pasta port checks require nc on the selected Podman host.';
+        return "nc tool missing, install netcat to enable";
     }
 
     return null;
