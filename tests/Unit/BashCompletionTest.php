@@ -1,0 +1,54 @@
+<?php
+
+function runContainerToolsCompletion(array $words, ?string $podmanBinary = null): array
+{
+    $arguments = implode(' ', array_map('escapeshellarg', $words));
+    $completion = escapeshellarg(dirname(__DIR__, 2) . '/share/bash-completion/container-tools');
+    $script = "source $completion; COMP_WORDS=($arguments); COMP_CWORD=\$((\${#COMP_WORDS[@]} - 1)); _container_tools; printf '%s\\n' \"\${COMPREPLY[@]}\"";
+    $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $environment = $podmanBinary === null ? null : ['PODMAN_BINARY' => $podmanBinary];
+    $process = proc_open(['/bin/bash', '-c', $script], $descriptors, $pipes, null, $environment);
+
+    if (!is_resource($process)) {
+        throw new RuntimeException('Could not start Bash for completion test.');
+    }
+
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $status = proc_close($process);
+
+    if ($status !== 0) {
+        throw new RuntimeException("Bash completion failed: $stderr");
+    }
+
+    return array_values(array_filter(explode("\n", trim($stdout)), 'strlen'));
+}
+
+test('Bash completion lists commands and command options', function () {
+    expect(runContainerToolsCompletion(['container-tools', 'cr']))->toContain('create');
+    expect(runContainerToolsCompletion(['container-tools', 'create', '--p']))
+        ->toContain('--publish')
+        ->toContain('--pasta-auto-publish');
+});
+
+test('Bash completion supports file options with equals syntax', function () {
+    $prefix = dirname(__DIR__, 2) . '/examples/caddy/Cad';
+    expect(runContainerToolsCompletion(['container-tools', 'build', "--file=$prefix"]))
+        ->toContain("--file={$prefix}dyfile");
+});
+
+test('Bash completion lists containers from the selected Podman host', function () {
+    $fakePodman = tempnam(sys_get_temp_dir(), 'container-tools-podman-');
+    file_put_contents($fakePodman, "#!/bin/bash\nprintf '%s\\n' test-container\n");
+    chmod($fakePodman, 0755);
+
+    try {
+        expect(runContainerToolsCompletion(['container-tools', 'status', ''], $fakePodman))
+            ->toContain('test-container');
+    } finally {
+        unlink($fakePodman);
+    }
+});

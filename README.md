@@ -25,6 +25,8 @@ Creation defaults to keeping stdin open and allocating a TTY, matching Podman De
 
 The global options follow the shared shell-tool conventions: `-v|--verbose` prints the complete, formatted REST inspection document, `-q|--quiet` suppresses normal output, `-h|--help` prints usage, and `-d|--dry-run` prints the requested command without performing it. They can appear before or after the action. Options with values accept both `--image IMAGE` and `--image=IMAGE` forms.
 
+The Debian package installs Bash completion for commands, options, containers, images, networks, and Podman connections. In a source checkout, load it with `source share/bash-completion/container-tools`.
+
 Podman assigns a readable random name if `--name` is omitted; the result includes that final name and both full and short IDs. When a name is provided, the container's hostname defaults to that name. `--hostname HOSTNAME` overrides it. For an automatically assigned name, Podman chooses its hostname at creation time, so the hostname may be the container ID rather than the friendly name.
 
 Use `--image IMAGE` or `CONTAINER_IMAGE=IMAGE` to choose another default image. Use `--no-start` only when a stopped container is specifically needed. `--` separates this tool's options from the command to run inside the container. The `CommandResult` includes the full REST inspection document under `data.container.api`, including the image's actual command and entrypoint.

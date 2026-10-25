@@ -1,0 +1,180 @@
+# Bash completion for container-tools.
+
+_container_tools_podman() {
+	local connection=$1
+	shift
+	local binary=${PODMAN_BINARY:-podman}
+
+	if [[ -n $connection ]]; then
+		"$binary" --connection "$connection" "$@" 2>/dev/null
+	else
+		"$binary" "$@" 2>/dev/null
+	fi
+}
+
+_container_tools_connection() {
+	local selected=$1
+	shift
+	while (($#)); do
+		case $1 in
+		--connection|-c)
+			shift
+			selected=${1:-}
+			;;
+		--connection=*) selected=${1#*=} ;;
+		-c=*) selected=${1#*=} ;;
+		esac
+		shift
+	done
+	printf '%s' "$selected"
+}
+
+_container_tools_values() {
+	local option=$1 connection=$2 value=${3:-}
+	case $option in
+	--connection|-c)
+		_container_tools_podman '' system connection list --format '{{.Name}}'
+		;;
+	--name)
+		_container_tools_podman "$connection" ps --all --format '{{.Names}}'
+		;;
+	--image|--from)
+		_container_tools_podman "$connection" images --format '{{.Repository}}:{{.Tag}}' | grep -v '^<none>:<none>$'
+		;;
+	--network)
+		_container_tools_podman "$connection" network ls --format '{{.Name}}'
+		;;
+	--driver)
+		printf '%s\n' bridge macvlan ipvlan
+		;;
+	--ipam)
+		printf '%s\n' host-local dhcp none
+		;;
+	--file|--compose-file)
+		compgen -f -- "$value"
+		;;
+	esac
+}
+
+_container_tools() {
+	local cur prev command subcommand option connection prefix suggestions
+	local -a prior
+	COMPREPLY=()
+	cur=${COMP_WORDS[COMP_CWORD]}
+	prev=${COMP_WORDS[COMP_CWORD-1]:-}
+	prior=("${COMP_WORDS[@]:1:COMP_CWORD-1}")
+	connection=$(_container_tools_connection "${CONTAINER_CONNECTION:-}" "${prior[@]}")
+	command=
+	subcommand=
+	local index word after_separator=false
+	for ((index = 0; index < ${#prior[@]}; index++)); do
+		word=${prior[index]}
+		if [[ $word == -- ]]; then
+			after_separator=true
+			break
+		fi
+		if [[ $word == --connection || $word == -c ]]; then
+			((index++))
+			continue
+		fi
+		if [[ $word == --connection=* || $word == -c=* || $word == -h || $word == --help || $word == -v || $word == --verbose || $word == -q || $word == --quiet || $word == -d || $word == --dry-run ]]; then
+			continue
+		fi
+		if [[ $word == -* ]]; then
+			continue
+		fi
+		if [[ -z $command ]]; then
+			command=$word
+		elif [[ $command == network && -z $subcommand ]]; then
+			subcommand=$word
+		fi
+	done
+
+	if [[ $after_separator == true ]]; then
+		COMPREPLY=( $(compgen -c -- "$cur") )
+		return
+	fi
+
+	if [[ $cur == *=* && $cur == --* ]]; then
+		option=${cur%%=*}
+		prefix=$option=
+		cur=${cur#*=}
+		suggestions=$(_container_tools_values "$option" "$connection" "$cur")
+		COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
+		for index in "${!COMPREPLY[@]}"; do COMPREPLY[index]=$prefix${COMPREPLY[index]}; done
+		return
+	fi
+
+	case $prev in
+		--connection|-c|--name|--image|--from|--network|--driver|--ipam|--file|--compose-file)
+			suggestions=$(_container_tools_values "$prev" "$connection" "$cur")
+			COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
+			return
+			;;
+	esac
+
+	if [[ $cur == -* ]]; then
+		case $command:$subcommand in
+			:)
+				suggestions='-h --help -v --verbose -q --quiet -d --dry-run -c --connection image-pull build create start stop status wait-ready exec destroy network'
+				;;
+			build:)
+				suggestions='--file --tag --from --no-cache'
+				;;
+			create:)
+				suggestions='--name --image --compose-file --service --hostname --memory --label --publish --no-publish-defaults --network --pasta-auto-publish --ip4 --ip6 --no-start'
+				;;
+			network:)
+				suggestions='create inspect destroy'
+				;;
+			network:create)
+				suggestions='--name --driver --parent --ipam --ipv4-subnet --ipv4-gateway --ipv6-subnet --ipv6-gateway --ipv6'
+				;;
+			*)
+				suggestions='-h --help -v --verbose -q --quiet -d --dry-run -c --connection'
+				;;
+		esac
+		COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
+		return
+	fi
+
+	if [[ -z $command ]]; then
+		COMPREPLY=( $(compgen -W '-h --help -v --verbose -q --quiet -d --dry-run -c --connection image-pull build create start stop status wait-ready exec destroy network' -- "$cur") )
+		return
+	fi
+
+	case $command:$subcommand in
+		start:|stop:|status:|wait-ready:|exec:|destroy:)
+			suggestions=$(_container_tools_values --name "$connection")
+			COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
+			;;
+		network:)
+			COMPREPLY=( $(compgen -W 'create inspect destroy' -- "$cur") )
+			;;
+		network:inspect|network:destroy)
+			suggestions=$(_container_tools_values --network "$connection")
+			COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
+			;;
+		image-pull:)
+			suggestions=$(_container_tools_values --image "$connection")
+			COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
+			;;
+		build:)
+			if [[ -z $cur ]]; then
+				COMPREPLY=( $(compgen -W '--file --tag --from --no-cache' -- "$cur") )
+			else
+				COMPREPLY=( $(compgen -f -- "$cur") )
+			fi
+			;;
+		create:)
+			COMPREPLY=( $(compgen -W '--name --image --compose-file --service --hostname --memory --label --publish --no-publish-defaults --network --pasta-auto-publish --ip4 --ip6 --no-start' -- "$cur") )
+			;;
+		network:create)
+			COMPREPLY=( $(compgen -W '--name --driver --parent --ipam --ipv4-subnet --ipv4-gateway --ipv6-subnet --ipv6-gateway --ipv6' -- "$cur") )
+			;;
+		*)
+			;;
+	esac
+}
+
+complete -F _container_tools container-tools

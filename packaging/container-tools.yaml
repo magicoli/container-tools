@@ -18,6 +18,7 @@ depends:
   - podman
 
 recommends:
+  - bash-completion
   - openssh-client
   - podman-compose
   - tar
@@ -30,3 +31,5 @@ contents:
     dst: /usr/bin/container-tools
     file_info:
       mode: 0755
+  - src: share/bash-completion/container-tools
+    dst: /usr/share/bash-completion/completions/container-tools

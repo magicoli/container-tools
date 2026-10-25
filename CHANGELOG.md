@@ -13,3 +13,4 @@
 - feat: return structured lifecycle and build results
 - feat: add Debian packaging and standard build and release tools
 - fix: require the PHP cURL package matching the system PHP version
+- feat: add Bash completion for the command-line interface
