@@ -1,6 +1,6 @@
 ## Changelog
 
-### Unreleased
+### 0.1.0-dev.1
 
 - feat: provide PHP and CLI interfaces for Podman image, network, and container lifecycle management
 - feat: support local and remote Podman connections through its REST API
