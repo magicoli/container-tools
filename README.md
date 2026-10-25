@@ -2,7 +2,7 @@
 
 A small PHP library for Podman container lifecycle operations, with a command adapter for shell callers.
 
-The first milestone covers image builds from a local Containerfile and build context, image availability, container creation and startup, state inspection, readiness probes, command execution, stopping, and destruction. Container operations use Podman's official Docker-compatible REST API; Guzzle handles HTTP and cURL handles the Unix socket transport. Podman's configured SSH connection is used only to establish an SSH tunnel to its API socket.
+The first milestone covers image builds from a local Containerfile and build context, image availability, container creation and startup, state inspection, readiness probes, command execution, stopping, and destruction. Container operations use Podman's official Docker-compatible REST API; Guzzle handles HTTP and cURL handles the Unix socket transport. Podman's configured SSH connection is used only to establish an SSH tunnel to its API socket. Runtime configuration modules live separately under `Container\Module`: Compose delegates to Podman's configured Compose provider, and Kube Play delegates Kubernetes manifests to Podman. These modules keep their own lifecycle APIs instead of pretending that different deployment formats have identical semantics.
 
 The public API is under `Magicoli\ContainerTools\Container`: `ContainerManagerInterface` defines the driver contract, `ContainerDefinition` describes a container, and `Container\Driver\Podman` implements the contract. The command in `bin/` is a thin shell-facing adapter over that API.
 
@@ -84,7 +84,36 @@ $created = $podman->createFromCompose(new ComposeInstanceDefinition(
 $podman->start($created->data['container']['name']);
 ```
 
-Compose provider-specific support is determined by the provider installed on the Podman host. The integration tests verify the actual container configuration through Podman's REST API and pass with both Docker Compose and `podman-compose` as Podman's configured provider.
+Compose provider-specific support is determined by the provider installed on the Podman host. The integration tests verify the actual container configuration through Podman's REST API and pass with both Docker Compose and `podman-compose` as Podman's configured provider. The implementation is in `Container\Module\Compose`; `Podman` uses it when a caller asks to create a single container from a Compose service.
+
+### Kube Play
+
+Use the Kube Play module to deploy or remove Podman pods from Kubernetes YAML. It passes the manifest on standard input, so the same API works with a remote `CONTAINER_CONNECTION` without requiring the manifest file to exist on the remote host. Networks are explicit: Podman hosts may not have the default Kubernetes network, so container-tools does not silently choose one.
+
+```php
+use Magicoli\ContainerTools\Container\Module\KubePlay\KubePlayDefinition;
+use Magicoli\ContainerTools\Container\Module\KubePlay\PodmanKubePlay;
+
+$kube = new PodmanKubePlay(); // Honors CONTAINER_CONNECTION.
+$manifest = new KubePlayDefinition(
+    file: __DIR__ . '/pod.yaml',
+    networks: ['podman'],
+    replace: true,
+);
+$created = $kube->play($manifest);
+if (!$created->succeeded()) {
+    throw new RuntimeException($created->stderr);
+}
+
+// Later, remove the resources described by the same manifest:
+$removed = $kube->down($manifest);
+```
+
+The corresponding Podman operations are `podman kube play` and `podman kube play --down`. The module returns their output and exit status in `CommandResult`, together with the selected manifest, network list, connection and operation summary. Kube Play creates and manages pods, which have a different lifecycle from the single containers managed by `ContainerManagerInterface`.
+
+### Module layout
+
+Each deployment format gets a namespace under `Container\Module` and exposes the operations appropriate to that format. Compose and Kube Play are implemented as separate modules; future formats such as Quadlet can add their own module without changing the Podman REST driver or forcing a common lifecycle onto unlike deployment resources. The module layer is deliberately distinct from container-engine drivers such as Podman and a future Docker driver.
 
 ## Container networking
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Magicoli\ContainerTools\Container\Driver;
+namespace Magicoli\ContainerTools\Container\Module\Compose;
 
 use Magicoli\ContainerTools\Container\CommandResult;
 

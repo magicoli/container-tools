@@ -12,6 +12,7 @@ use Magicoli\ContainerTools\Container\ContainerDefinition;
 use Magicoli\ContainerTools\Container\ContainerManagerInterface;
 use Magicoli\ContainerTools\Container\ImageBuildDefinition;
 use Magicoli\ContainerTools\Container\NetworkDefinition;
+use Magicoli\ContainerTools\Container\Module\Compose\PodmanCompose;
 use Magicoli\ContainerTools\Container\PortForward;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\ResponseInterface;
