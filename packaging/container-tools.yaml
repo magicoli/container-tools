@@ -14,7 +14,7 @@ license: AGPL-3.0-or-later
 
 depends:
   - php-cli (>= 2:8.2)
-  - php-curl
+  - php-curl (>= 2:8.2)
   - podman
 
 recommends:
