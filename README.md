@@ -244,3 +244,11 @@ The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples sha
 ## Tests
 
 `composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. The Compose integration cases run when Podman has a Compose provider configured; if none is installed, those cases are reported as skipped with the missing prerequisite. Install Docker Compose or `podman-compose` to run them. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, checks a Compose-configured instance, exercises lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--connection NAME` to select a configured Podman connection.
+
+# Roadmap
+
+- [ ] OpenAPI specifications
+- [ ] AI skills
+- [ ] [Quadlet support](https://www.stephane-robert.info/docs/conteneurs/moteurs-conteneurs/podman/quadlet/)
+- [ ] Pools: pools of connections to choose from, with best guess (load, cpu, memory...)
+- [ ] Quota: limit usage per pool, categories, host, ...

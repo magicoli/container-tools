@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c2ef25eaa40e53adee2774d74d5212bf",
+    "content-hash": "dbfe8aa996e13d97d1df0a81a19b784f",
     "packages": [
         {
             "name": "guzzlehttp/guzzle",
@@ -1031,6 +1031,97 @@
                 "source": "https://github.com/Jean85/pretty-package-versions/tree/2.1.1"
             },
             "time": "2025-03-19T14:43:43+00:00"
+        },
+        {
+            "name": "magicoli/bash-tools",
+            "version": "1.0.9",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/magicoli/bash-tools.git",
+                "reference": "781def8f2fa4cc6d9b8952b566023c730e01c569"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/magicoli/bash-tools/zipball/781def8f2fa4cc6d9b8952b566023c730e01c569",
+                "reference": "781def8f2fa4cc6d9b8952b566023c730e01c569",
+                "shasum": ""
+            },
+            "bin": [
+                "bin/cpuinfo",
+                "bin/bash-helpers",
+                "bin/mail-report",
+                "bin/randompassword",
+                "bin/stamp",
+                "bin/stampfile",
+                "bin/tildelete",
+                "bin/titlecase",
+                "bin/tts",
+                "bin/ucfirst",
+                "bin/webnormalize",
+                "bin/wtclient"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Magicoli\\BashHelpers\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "AGPL-3.0-or-later"
+            ],
+            "authors": [
+                {
+                    "name": "Olivier van Helden",
+                    "homepage": "https://magiiic.com"
+                }
+            ],
+            "description": "Eclectic collection of bash tools and helpers.",
+            "support": {
+                "issues": "https://github.com/magicoli/bash-tools/issues",
+                "source": "https://github.com/magicoli/bash-tools/tree/1.0.9"
+            },
+            "time": "2026-10-24T11:40:03+00:00"
+        },
+        {
+            "name": "magicoli/build-tools",
+            "version": "0.1.9",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/magicoli/build-tools.git",
+                "reference": "0296f73c8647e7363cd018511675636f2eda16ad"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/magicoli/build-tools/zipball/0296f73c8647e7363cd018511675636f2eda16ad",
+                "reference": "0296f73c8647e7363cd018511675636f2eda16ad",
+                "shasum": ""
+            },
+            "require": {
+                "magicoli/bash-tools": "^1.0.6"
+            },
+            "bin": [
+                "bin/build-tools",
+                "bin/apt-package",
+                "bin/apt-publish"
+            ],
+            "type": "library",
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "AGPL-3.0-or-later"
+            ],
+            "authors": [
+                {
+                    "name": "Olivier van Helden",
+                    "homepage": "https://magiiic.com"
+                }
+            ],
+            "description": "Build, release and publish a project: Debian packages, zip, GitHub release, apt repository.",
+            "support": {
+                "issues": "https://github.com/magicoli/build-tools/issues",
+                "source": "https://github.com/magicoli/build-tools/tree/0.1.9"
+            },
+            "time": "2026-10-24T04:02:05+00:00"
         },
         {
             "name": "magicoli/pest-failure-summary",
