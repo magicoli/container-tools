@@ -1,6 +1,6 @@
 ## Changelog
 
-### Unreleased
+### 0.1.0-dev.2
 
 - feat: add Bash completion for CLI
 
