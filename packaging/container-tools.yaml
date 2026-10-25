@@ -1,0 +1,32 @@
+# The container-tools library, production Composer dependencies and CLI adapter.
+name: container-tools
+arch: all
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: utils
+priority: optional
+maintainer: Magiiic <bagagiste@magiiic.com>
+description: |-
+  PHP library and command-line adapter for managing Podman containers
+homepage: https://github.com/magicoli/container-tools
+license: AGPL-3.0-or-later
+
+depends:
+  - php-cli (>= 2:8.2)
+  - php-curl
+  - podman
+
+recommends:
+  - openssh-client
+  - podman-compose
+  - tar
+
+contents:
+  - src: build/container-tools
+    dst: /usr/share/container-tools
+    type: tree
+  - src: packaging/container-tools
+    dst: /usr/bin/container-tools
+    file_info:
+      mode: 0755

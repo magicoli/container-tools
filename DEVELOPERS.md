@@ -119,6 +119,10 @@ Do not force Compose or Kube Play into `ContainerManagerInterface` lifecycle met
 
 The test bootstrap loads the project `.env` followed by `tests/.env`; values supplied by the invoking process take precedence. Keep personal machine settings in ignored `.env` files and document only anonymous examples in tracked files.
 
+## Build and package
+
+Install development dependencies with `composer install`, then use `./dev/build.sh` to build the Debian package and source zip into `dist/`. `packaging/build` stages the production Composer dependencies under `build/container-tools`; `packaging/container-tools.yaml` defines the Debian package contents and runtime dependencies. Use `./dev/release.sh` for the release workflow. This package has no separately packaged Composer siblings, so `packaging/siblings` remains empty apart from its format comment.
+
 ## Current limits to preserve accurately
 
 - Podman is the implemented container driver. Docker is not yet an implemented driver.

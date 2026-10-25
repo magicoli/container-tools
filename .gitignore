@@ -1,5 +1,7 @@
 /vendor/
 /tmp/
+/build/
+/dist/
 /.env
 /tests/.env
 .DS_Store

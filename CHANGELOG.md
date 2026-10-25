@@ -9,3 +9,4 @@
 - feat: add port publishing, pasta forwarding, and direct network addressing
 - feat: manage Compose services and Kube Play deployments
 - feat: return structured lifecycle and build results
+- feat: add Debian packaging and standard build and release tools

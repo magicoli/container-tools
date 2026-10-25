@@ -1,0 +1,11 @@
+# Development and test files are not part of the source archive or Debian package
+/.distignore
+/.gitignore
+/AGENTS.md
+/DEVELOPERS.md
+/.agents/
+/.env.example
+/dev/
+/packaging/
+/tests/
+/phpunit.xml

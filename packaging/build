@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Prepare the Debian package tree with build-tools.
+
+set -e
+cd "$(dirname "$0")/.."
+vendor/bin/build-tools stage build/container-tools deb
