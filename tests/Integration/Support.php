@@ -76,7 +76,7 @@ function integration_unused_host_port(Podman $podman, string $probeName): int
         $available = $podman->exec($probeName, [
             "sh",
             "-c",
-            "! grep -qi ':$hex ' /proc/net/tcp /proc/net/tcp6",
+            "! grep -qi ':$hex ' /proc/net/tcp /proc/net/tcp6 /proc/net/udp /proc/net/udp6",
         ]);
         if ($available->succeeded()) {
             return $port;

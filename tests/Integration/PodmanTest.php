@@ -241,6 +241,68 @@ test('Pasta forwards container port', function () {
     }
 })->skip(integration_skip_reason('pasta') !== null, integration_skip_reason('pasta') ?? '');
 
+test('Pasta forwards a UDP listener opened inside the container', function () {
+    $podman = integration_podman();
+    $probeName = integration_name('pasta-udp-probe');
+    $targetName = integration_name('pasta-udp');
+    $created = [];
+
+    try {
+        integration_host_probe($podman, $probeName);
+        $created[] = $probeName;
+        $port = integration_unused_host_port($podman, $probeName);
+        $message = 'pasta-udp-' . bin2hex(random_bytes(6));
+        $result = $podman->create(new ContainerDefinition(
+            $targetName,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', "busybox nc -u -l -p $port > /tmp/udp-request & exec sleep 300"],
+            pastaAutoPublish: true,
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created[] = $targetName;
+        expect($podman->start($targetName)->status)->toBe(0);
+
+        $hexPort = strtoupper(str_pad(dechex($port), 4, '0', STR_PAD_LEFT));
+        $listening = false;
+        $listenDeadline = microtime(true) + 5;
+        do {
+            $socket = $podman->exec($targetName, [
+                'sh', '-c', "grep -qi ':$hexPort ' /proc/net/udp /proc/net/udp6",
+            ]);
+            if ($socket->succeeded()) {
+                $listening = true;
+                break;
+            }
+            usleep(250_000);
+        } while (microtime(true) < $listenDeadline);
+        expect($listening)->toBeTrue('The UDP listener did not bind inside the container.');
+
+        $sent = $podman->exec($probeName, [
+            'sh', '-c', "printf '%s' '$message' | busybox nc -u -w 1 127.0.0.1 $port",
+        ]);
+        expect($sent->status)->toBe(0, $sent->stderr . $sent->stdout);
+
+        $received = '';
+        $deadline = microtime(true) + 5;
+        do {
+            $read = $podman->exec($targetName, ['cat', '/tmp/udp-request']);
+            if ($read->succeeded()) {
+                $received = trim($read->stdout);
+            }
+            if ($received === $message) {
+                break;
+            }
+            usleep(250_000);
+        } while (microtime(true) < $deadline);
+
+        expect($received)->toBe($message, 'The UDP datagram did not reach the listener through Pasta.');
+    } finally {
+        foreach ($created as $name) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(integration_skip_reason('pasta') !== null, integration_skip_reason('pasta') ?? '');
+
 test('EXPOSE host mappings', function () {
     $podman = integration_podman();
     $first = integration_name('ports-a');
