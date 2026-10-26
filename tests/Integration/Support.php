@@ -360,6 +360,16 @@ function integration_skip_reason(string $feature = ""): ?string
         return $reason;
     }
 
+    if ($feature === "external") {
+        if (trim((string) getenv("CONTAINER_TEST_EXTERNAL_HOST")) === "") {
+            return "set CONTAINER_TEST_EXTERNAL_HOST for an external port check";
+        }
+        $uri = integration_selected_connection_uri();
+        if ($uri === null || !str_starts_with($uri, "ssh://")) {
+            return "external port checks require a remote Podman connection";
+        }
+    }
+
     if ($feature === "compose" && !integration_compose_provider_available()) {
         return "Podman Compose provider is not available to this test runner.";
     }

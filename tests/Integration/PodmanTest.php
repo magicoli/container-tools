@@ -431,4 +431,41 @@ test('publishes explicit TCP and UDP mappings', function () {
         }
     }
 })->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
+
+test('published TCP port accepts a connection from the test host', function () {
+    $podman = integration_podman();
+    $probeName = integration_name('external-port-probe');
+    $targetName = integration_name('external-port');
+    $host = trim((string) getenv('CONTAINER_TEST_EXTERNAL_HOST'));
+    $created = [];
+
+    try {
+        integration_host_probe($podman, $probeName);
+        $created[] = $probeName;
+        $port = integration_unused_host_port($podman, $probeName);
+        $result = $podman->create(new ContainerDefinition(
+            $targetName,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', "busybox nc -lk -p $port -e /bin/cat >/dev/null 2>&1"],
+            portForwards: [new PortForward($port, $port)],
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created[] = $targetName;
+        expect($podman->start($targetName)->status)->toBe(0);
+        expect(integration_wait_for_host_port($port))->toBeTrue('The Podman host could not reach the published port.');
+
+        $address = filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? "[$host]" : $host;
+        $socket = @stream_socket_client("tcp://$address:$port", $errorCode, $errorMessage, 5);
+        expect(is_resource($socket))->toBeTrue("Could not connect from the test host: $errorMessage ($errorCode)");
+        stream_set_timeout($socket, 3);
+        $message = 'external-' . bin2hex(random_bytes(6));
+        expect(fwrite($socket, $message))->toBe(strlen($message));
+        expect(fread($socket, strlen($message)))->toBe($message);
+        fclose($socket);
+    } finally {
+        foreach ($created as $name) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(integration_skip_reason('external') !== null, integration_skip_reason('external') ?? '');
 });

@@ -255,7 +255,7 @@ Read the selected Podman server hostname without creating a container:
 
 ## Tests
 
-`composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. The Compose integration cases run when Podman has a Compose provider configured; if none is installed, those cases are reported as skipped with the missing prerequisite. Install Docker Compose or `podman-compose` to run them. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, checks a Compose-configured instance, exercises lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--connection NAME` to select a configured Podman connection.
+`composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. The Compose integration cases run when Podman has a Compose provider configured; if none is installed, those cases are reported as skipped with the missing prerequisite. Install Docker Compose or `podman-compose` to run them. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, checks a Compose-configured instance, exercises lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--connection NAME` to select a configured Podman connection. To enable the external reachability test, set `CONTAINER_TEST_EXTERNAL_HOST` in `tests/.env` to the selected remote host's public hostname or address.
 
 # Roadmap
 
