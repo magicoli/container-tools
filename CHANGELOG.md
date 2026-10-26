@@ -1,6 +1,6 @@
 ## Changelog
 
-### Unreleased
+### 0.1.0-alpha.1
 
 - feat: copy local files and directories into containers through the PHP API and CLI
 - fix: resolve the Composer autoloader when the CLI is invoked through a symlink
