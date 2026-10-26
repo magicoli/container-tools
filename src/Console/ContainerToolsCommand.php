@@ -29,6 +29,7 @@ final class ContainerToolsCommand
                 !in_array(
                     $topic,
                     [
+                        "info",
                         "image-pull",
                         "build",
                         "create",
@@ -89,6 +90,7 @@ final class ContainerToolsCommand
         $action = array_shift($arguments) ?? "";
         try {
             $result = match ($action) {
+                "info" => $arguments === [] ? $this->manager->info() : null,
                 "image-pull" => count($arguments) === 1
                     ? $this->manager->pull($arguments[0])
                     : null,
@@ -136,6 +138,7 @@ final class ContainerToolsCommand
     {
         if ($topic !== null) {
             $help = match ($topic) {
+                "info" => "usage: container-tools info\n\nShow the selected server system information as JSON.\n",
                 "image-pull" => <<<'HELP'
                 usage: container-tools image-pull IMAGE
 
@@ -258,6 +261,9 @@ final class ContainerToolsCommand
 
         Type 'container-tools <command> --help' or 'container-tools help <command>'
         for details on a command.
+
+        Server
+            info                    Show server system information as JSON
 
         Images
             image-pull IMAGE

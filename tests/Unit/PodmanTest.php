@@ -585,3 +585,18 @@ test('port parser expands lists and ranges', function () {
 test('port parser rejects mismatched ranges', function () {
     expect(fn () => PortForward::parseList('8080-8082:80-81'))->toThrow(InvalidArgumentException::class);
 });
+
+test('info returns the selected server hostname', function () {
+    $history = [];
+    $podman = podman_api([api_version(), new Response(200, [], '{"Name":"podman.example.test"}')], $history);
+    $result = $podman->info();
+    expect($result->status)->toBe(0)
+        ->and(json_decode($result->stdout, true)['Name'])->toBe('podman.example.test')
+        ->and($history[1]['request']->getUri()->getPath())->toBe('/v1.41/info');
+});
+
+test('info reports server failures', function () {
+    $podman = podman_api([api_version(), new Response(503, [], '{"message":"server unavailable"}')]);
+    $result = $podman->info();
+    expect($result->succeeded())->toBeFalse()->and($result->stderr)->toContain('server unavailable');
+});

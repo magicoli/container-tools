@@ -7,6 +7,9 @@ namespace Magicoli\ContainerTools\Container;
 /** Contract for managing images, networks, and individual containers. */
 interface ContainerManagerInterface
 {
+    /** Return system information about the selected server as JSON in stdout. */
+    public function info(): CommandResult;
+
     /** Return whether IMAGE is available to the selected engine; connection errors also return false. */
     public function imageAvailable(string $image): bool;
 

@@ -80,6 +80,7 @@ Fields from Podman may be `null` when the engine omits them. `ports` contains ef
 
 | Method | Behavior and result data |
 |---|---|
+| `info(): CommandResult` | Returns the selected server system information as JSON in `stdout`, including its `Name` (hostname). |
 | `imageAvailable(string $image): bool` | Checks local availability on the selected engine. `false` covers both missing image and failed lookup/connection; use `pull()` when the distinction is not needed. |
 | `pull(string $image): CommandResult` | Pulls only when missing. `data`: `operation`, `summary`, `image`, `pulled`. |
 | `build(ImageBuildDefinition $image): CommandResult` | Builds from a client-local context; Containerfile must be inside that context. `data` includes `operation`, `summary`, `image`, `from`, `no_cache`, `image_existed`, `build_steps`, `cached_steps`, `image_id` where available. Summary distinguishes unchanged/cache-tagged/rebuilt/new/no-cache results. |

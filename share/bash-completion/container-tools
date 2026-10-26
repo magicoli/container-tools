@@ -134,7 +134,7 @@ _container_tools() {
 		suggestions=
 		case $command:$subcommand in
 			:)
-				suggestions='image-pull build create start stop status wait-ready exec cp destroy network --help --verbose --quiet --dry-run --connection'
+				suggestions='info image-pull build create start stop status wait-ready exec cp destroy network --help --verbose --quiet --dry-run --connection'
 				;;
 			build:)
 				suggestions='--file --tag --from --no-cache --help --verbose --quiet --dry-run --connection'
@@ -156,7 +156,7 @@ _container_tools() {
 	fi
 
 	if [[ -z $command ]]; then
-		suggestions=$(_container_tools_filter_used 'image-pull build create start stop status wait-ready exec cp destroy network --help --verbose --quiet --dry-run --connection')
+		suggestions=$(_container_tools_filter_used 'info image-pull build create start stop status wait-ready exec cp destroy network --help --verbose --quiet --dry-run --connection')
 		COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
 		return
 	fi

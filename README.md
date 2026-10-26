@@ -247,6 +247,12 @@ podman exec -it debian-caddy /bin/bash
 
 The Alpine recipe is at `examples/caddy/alpine/Containerfile`. Both examples share the Caddyfile and entrypoint in `examples/caddy/`. Open an interactive shell in an Alpine container with `podman exec -it alpine-caddy /bin/sh`. `EXPOSE` records image port metadata; this library uses that metadata for its default automatic host mappings when creating a container.
 
+Read the selected Podman server hostname without creating a container:
+
+```bash
+./bin/container-tools --connection=podman-host info | jq -r .Name
+```
+
 ## Tests
 
 `composer test` runs unit tests and real Podman integration tests. Podman, PHP with cURL, and `tar` are required. The Compose integration cases run when Podman has a Compose provider configured; if none is installed, those cases are reported as skipped with the missing prerequisite. Install Docker Compose or `podman-compose` to run them. The integration suite builds the Debian 12 and Alpine Caddy/OpenSSH examples, checks a Compose-configured instance, exercises lifecycle and readiness probes, then removes the containers. Use Podman’s standard `CONTAINER_CONNECTION` variable or pass `--connection NAME` to select a configured Podman connection.

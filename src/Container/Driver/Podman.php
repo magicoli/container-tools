@@ -63,6 +63,12 @@ final class Podman implements ContainerManagerInterface
         $this->apiVersion = $this->negotiateApiVersion();
     }
 
+    /** Return the selected server's system information as the API's JSON document. */
+    public function info(): CommandResult
+    {
+        return $this->request('GET', $this->path('info'));
+    }
+
     /** A failed lookup, including a connection failure, is reported as false. */
     public function imageAvailable(string $image): bool
     {
