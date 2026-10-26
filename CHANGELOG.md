@@ -1,6 +1,6 @@
 ## Changelog
 
-### Unreleased
+### 0.1.0-alpha.2
 
 - magicoli/build-tools 0.1.10 => 0.1.11
 
