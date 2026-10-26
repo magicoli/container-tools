@@ -432,6 +432,77 @@ test('publishes explicit TCP and UDP mappings', function () {
     }
 })->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
 
+test('explicit TCP mapping reaches a listener started after container startup', function () {
+    $podman = integration_podman();
+    $probeName = integration_name('bridge-listener-probe');
+    $targetName = integration_name('bridge-listener');
+    $created = [];
+
+    try {
+        integration_host_probe($podman, $probeName);
+        $created[] = $probeName;
+        $port = integration_unused_host_port($podman, $probeName);
+        $result = $podman->create(new ContainerDefinition(
+            $targetName,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', 'exec sleep 300'],
+            portForwards: [new PortForward($port, $port, hostIp: '127.0.0.1')],
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created[] = $targetName;
+        $containerId = $result->data['container']['id'];
+        expect($podman->start($targetName)->status)->toBe(0);
+        $listener = "busybox nc -lk -p $port -e /bin/cat >/dev/null 2>&1 &";
+        expect($podman->exec($targetName, ['sh', '-c', $listener])->status)->toBe(0);
+        expect(integration_wait_for_host_port($port))->toBeTrue('The configured TCP mapping did not reach the late listener.');
+
+        $message = 'bridge-' . bin2hex(random_bytes(6));
+        $probe = $podman->exec($probeName, [
+            'sh', '-c', "printf '%s' '$message' | busybox nc -w 2 127.0.0.1 $port",
+        ]);
+        expect($probe->status)->toBe(0, $probe->stderr . $probe->stdout);
+        expect($podman->inspect($targetName)->data['container']['id'])->toBe($containerId);
+    } finally {
+        foreach ($created as $name) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
+
+test('rejects an occupied published TCP port', function () {
+    $podman = integration_podman();
+    $probeName = integration_name('occupied-port-probe');
+    $firstName = integration_name('occupied-port-first');
+    $secondName = integration_name('occupied-port-second');
+    $created = [];
+
+    try {
+        integration_host_probe($podman, $probeName);
+        $created[] = $probeName;
+        $port = integration_unused_host_port($podman, $probeName);
+        foreach ([$firstName, $secondName] as $name) {
+            $result = $podman->create(new ContainerDefinition(
+                $name,
+                'docker.io/library/alpine:3.24',
+                command: ['sh', '-c', 'exec sleep 300'],
+                portForwards: [new PortForward($port, $port, hostIp: '127.0.0.1')],
+            ));
+            expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+            $created[] = $name;
+            if ($name === $firstName) {
+                expect($podman->start($name)->status)->toBe(0);
+                continue;
+            }
+            $collision = $podman->start($name);
+            expect($collision->succeeded())->toBeFalse('Podman accepted a host port already bound by another container.');
+        }
+    } finally {
+        foreach ($created as $name) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
+
 test('published TCP port accepts a connection from the test host', function () {
     $podman = integration_podman();
     $probeName = integration_name('external-port-probe');
