@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "guzzlehttp/guzzle",
-            "version": "7.16.0",
+            "version": "7.16.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/guzzle/guzzle.git",
-                "reference": "ffb62ec787050ae4fa9449cdd6b80335db69bda2"
+                "reference": "81755d989b3007ca7f88a069857553cd08e7dc2e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/guzzle/guzzle/zipball/ffb62ec787050ae4fa9449cdd6b80335db69bda2",
-                "reference": "ffb62ec787050ae4fa9449cdd6b80335db69bda2",
+                "url": "https://api.github.com/repos/guzzle/guzzle/zipball/81755d989b3007ca7f88a069857553cd08e7dc2e",
+                "reference": "81755d989b3007ca7f88a069857553cd08e7dc2e",
                 "shasum": ""
             },
             "require": {
@@ -116,7 +116,7 @@
             ],
             "support": {
                 "issues": "https://github.com/guzzle/guzzle/issues",
-                "source": "https://github.com/guzzle/guzzle/tree/7.16.0"
+                "source": "https://github.com/guzzle/guzzle/tree/7.16.1"
             },
             "funding": [
                 {
@@ -132,7 +132,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-10-18T13:38:36+00:00"
+            "time": "2026-10-25T21:35:21+00:00"
         },
         {
             "name": "guzzlehttp/promises",
@@ -1085,20 +1085,20 @@
         },
         {
             "name": "magicoli/build-tools",
-            "version": "0.1.9",
+            "version": "0.1.10",
             "source": {
                 "type": "git",
                 "url": "https://github.com/magicoli/build-tools.git",
-                "reference": "0296f73c8647e7363cd018511675636f2eda16ad"
+                "reference": "06c12d1b0d6698d9a5a7f22007182add62cf42ec"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/magicoli/build-tools/zipball/0296f73c8647e7363cd018511675636f2eda16ad",
-                "reference": "0296f73c8647e7363cd018511675636f2eda16ad",
+                "url": "https://api.github.com/repos/magicoli/build-tools/zipball/06c12d1b0d6698d9a5a7f22007182add62cf42ec",
+                "reference": "06c12d1b0d6698d9a5a7f22007182add62cf42ec",
                 "shasum": ""
             },
             "require": {
-                "magicoli/bash-tools": "^1.0.6"
+                "magicoli/bash-tools": "@dev"
             },
             "bin": [
                 "bin/build-tools",
@@ -1119,9 +1119,9 @@
             "description": "Build, release and publish a project: Debian packages, zip, GitHub release, apt repository.",
             "support": {
                 "issues": "https://github.com/magicoli/build-tools/issues",
-                "source": "https://github.com/magicoli/build-tools/tree/0.1.9"
+                "source": "https://github.com/magicoli/build-tools/tree/0.1.10"
             },
-            "time": "2026-10-24T04:02:05+00:00"
+            "time": "2026-10-26T12:23:07+00:00"
         },
         {
             "name": "magicoli/pest-failure-summary",
