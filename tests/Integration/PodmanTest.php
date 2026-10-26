@@ -432,6 +432,54 @@ test('publishes explicit TCP and UDP mappings', function () {
     }
 })->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
 
+test('host port scan finds TCP and UDP listeners on the selected connection', function () {
+    $podman = integration_podman();
+    $probeName = integration_name('host-port-scan');
+    $created = false;
+
+    try {
+        integration_host_probe($podman, $probeName);
+        $created = true;
+        $tcpPort = integration_unused_host_port($podman, $probeName);
+        do {
+            $udpPort = integration_unused_host_port($podman, $probeName);
+        } while ($udpPort === $tcpPort);
+
+        $listeners = sprintf(
+            'busybox nc -lk -p %1$d >/dev/null 2>&1 & busybox nc -u -l -p %2$d >/dev/null 2>&1 &',
+            $tcpPort,
+            $udpPort,
+        );
+        $started = $podman->exec($probeName, ['sh', '-c', $listeners]);
+        expect($started->status)->toBe(0, $started->stderr . $started->stdout);
+
+        $deadline = microtime(true) + 10;
+        do {
+            $scan = $podman->exec($probeName, [
+                'sh', '-c',
+                sprintf(
+                    'grep -qi ":%04X " /proc/net/tcp /proc/net/tcp6 && grep -qi ":%04X " /proc/net/udp /proc/net/udp6',
+                    $tcpPort,
+                    $udpPort,
+                ),
+            ]);
+            if ($scan->succeeded()) {
+                break;
+            }
+            usleep(100_000);
+        } while (microtime(true) < $deadline);
+        expect($scan->succeeded())->toBeTrue('TCP and UDP listeners did not bind on the selected Podman host.');
+
+        $ports = $podman->hostPorts();
+        expect($ports->status)->toBe(0, $ports->stderr . $ports->stdout);
+        expect($ports->data['ports'])->toContain($tcpPort, $udpPort);
+    } finally {
+        if ($created) {
+            $podman->destroy($probeName);
+        }
+    }
+})->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
+
 test('explicit TCP mapping reaches a listener started after container startup', function () {
     $podman = integration_podman();
     $probeName = integration_name('bridge-listener-probe');
