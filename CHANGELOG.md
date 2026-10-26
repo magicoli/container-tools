@@ -2,6 +2,18 @@
 
 ### Unreleased
 
+- feature (network): report occupied ports on selected host
+- feature (api): expose selected server information
+- dev: bump work version to 0.1.0-alpha.3
+- test: remove Podman from generic port detection coverage
+- test (ports): detect host TCP and UDP listeners
+- test (network): verify published UDP from local and remote hosts
+- test (network): cover fixed port lifecycle
+- test (network): verify externally published ports
+- test (network): verify live Pasta port changes
+- test (network): cover Pasta UDP forwarding
+- test (network): verify explicit TCP and UDP publishing
+
 ### 0.1.0-alpha.2
 
 - magicoli/build-tools 0.1.10 => 0.1.11
