@@ -600,3 +600,22 @@ test('info reports server failures', function () {
     $result = $podman->info();
     expect($result->succeeded())->toBeFalse()->and($result->stderr)->toContain('server unavailable');
 });
+
+test('host ports use the selected host network', function () {
+    $history = [];
+    $podman = podman_api([
+        api_version(), image_inspection(), image_inspection(),
+        new Response(201, [], '{"Id":"probe"}'), container_inspection(),
+        new Response(204), container_inspection('running'),
+        new Response(201, [], '{"Id":"probe-exec"}'), new Response(200, [], "\x01\0\0\0" . pack('N', 10) . "1F42\n2329\n"), new Response(200, [], '{"ExitCode":0}'),
+        new Response(200, [], '[{"Ports":[{"PublicPort":8102}]}]'),
+        container_inspection('running'), new Response(204),
+    ], $history);
+    $result = $podman->hostPorts();
+    expect($result->succeeded())->toBeTrue()
+        ->and($result->data['ports'])->toBe([8002, 8102, 9001]);
+    $created = json_decode((string) $history[3]['request']->getBody(), true);
+    expect($created['HostConfig']['NetworkMode'])->toBe('host')
+        ->and($created['HostConfig']['Privileged'] ?? false)->toBeFalse()
+        ->and($history[count($history) - 1]['request']->getMethod())->toBe('DELETE');
+});

@@ -29,6 +29,7 @@ final class ContainerToolsCommand
                 !in_array(
                     $topic,
                     [
+                        "host-ports",
                         "info",
                         "image-pull",
                         "build",
@@ -90,6 +91,7 @@ final class ContainerToolsCommand
         $action = array_shift($arguments) ?? "";
         try {
             $result = match ($action) {
+                "host-ports" => $arguments === [] ? $this->manager->hostPorts() : null,
                 "info" => $arguments === [] ? $this->manager->info() : null,
                 "image-pull" => count($arguments) === 1
                     ? $this->manager->pull($arguments[0])
@@ -138,6 +140,7 @@ final class ContainerToolsCommand
     {
         if ($topic !== null) {
             $help = match ($topic) {
+                "host-ports" => "usage: container-tools host-ports\n\nList occupied host TCP/UDP ports as JSON using a temporary probe container.\n",
                 "info" => "usage: container-tools info\n\nShow the selected server system information as JSON.\n",
                 "image-pull" => <<<'HELP'
                 usage: container-tools image-pull IMAGE
@@ -264,6 +267,7 @@ final class ContainerToolsCommand
 
         Server
             info                    Show server system information as JSON
+            host-ports              List occupied host ports as JSON
 
         Images
             image-pull IMAGE
@@ -678,7 +682,7 @@ final class ContainerToolsCommand
         CommandResult $result,
         bool $verbose = false,
     ): string {
-        if ($result->data === []) {
+        if ($result->data === [] || ($result->data["operation"] ?? "") === "host-ports") {
             return $result->stdout;
         }
 

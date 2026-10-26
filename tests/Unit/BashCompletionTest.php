@@ -43,6 +43,7 @@ test('Bash completion lists commands and command options', function () {
     $rootSuggestions = runContainerToolsCompletion(['container-tools', '']);
     expect($rootSuggestions)->toContain('create');
     expect($rootSuggestions)->toContain('cp');
+    expect($rootSuggestions)->toContain('host-ports');
     expect(array_search('create', $rootSuggestions, true))->toBeLessThan(array_search('--help', $rootSuggestions, true));
 
     expect(runContainerToolsCompletion(['container-tools', 'create', '--p']))

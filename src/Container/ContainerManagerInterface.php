@@ -10,6 +10,9 @@ interface ContainerManagerInterface
     /** Return system information about the selected server as JSON in stdout. */
     public function info(): CommandResult;
 
+    /** Return occupied ports on the selected host; uses and removes a temporary unprivileged probe container. */
+    public function hostPorts(string $image = ContainerDefinition::DEFAULT_IMAGE): CommandResult;
+
     /** Return whether IMAGE is available to the selected engine; connection errors also return false. */
     public function imageAvailable(string $image): bool;
 

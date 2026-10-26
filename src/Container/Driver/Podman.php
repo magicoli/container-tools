@@ -69,6 +69,68 @@ final class Podman implements ContainerManagerInterface
         return $this->request('GET', $this->path('info'));
     }
 
+    /** Inspect host TCP/UDP sockets and Podman publications using a temporary host-network probe. */
+    public function hostPorts(string $image = ContainerDefinition::DEFAULT_IMAGE): CommandResult
+    {
+        $result = $this->create(new ContainerDefinition(
+            image: $image, command: ['sh'], network: new \Magicoli\ContainerTools\Container\NetworkAttachment('host'),
+            labels: ['org.container-tools.probe' => 'host-ports'], publishExposedPorts: false,
+        ));
+        if (!$result->succeeded()) {
+            return $result;
+        }
+        $id = $result->data['container']['id'];
+        $publications = [];
+        try {
+            $result = $this->start($id);
+            if ($result->succeeded()) {
+                $script = <<<'SH'
+for table in /proc/net/tcp /proc/net/tcp6 /proc/net/udp /proc/net/udp6; do
+    if [ -r "$table" ]; then
+        awk 'NR > 1 { split($2, address, ":"); print address[2] }' "$table" || exit
+    fi
+done
+SH;
+                $result = $this->exec($id, ['sh', '-c', $script]);
+            }
+            if ($result->succeeded()) {
+                $listed = $this->request('GET', $this->path('containers/json?all=true'));
+                if (!$listed->succeeded()) {
+                    $result = $listed;
+                } else {
+                    $publications = json_decode($listed->stdout, true, flags: JSON_THROW_ON_ERROR);
+                }
+            }
+        } finally {
+            $cleanup = $this->destroy($id);
+        }
+        if (!$cleanup->succeeded()) {
+            return $cleanup;
+        }
+        if (!$result->succeeded()) {
+            return $result;
+        }
+        $ports = [];
+        foreach (preg_split('/\s+/', trim($result->stdout)) ?: [] as $hex) {
+            if ($hex !== '' && ctype_xdigit($hex)) {
+                $port = (int) hexdec($hex);
+                if ($port > 0) {
+                    $ports[] = $port;
+                }
+            }
+        }
+        foreach ($publications as $container) {
+            foreach ($container['Ports'] ?? [] as $binding) {
+                if (($binding['PublicPort'] ?? 0) > 0) {
+                    $ports[] = (int) $binding['PublicPort'];
+                }
+            }
+        }
+        $ports = array_values(array_unique($ports));
+        sort($ports);
+        return new CommandResult(0, json_encode($ports, JSON_THROW_ON_ERROR) . "\n", data: ['operation' => 'host-ports', 'ports' => $ports]);
+    }
+
     /** A failed lookup, including a connection failure, is reported as false. */
     public function imageAvailable(string $image): bool
     {
