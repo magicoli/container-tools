@@ -303,6 +303,55 @@ test('Pasta forwards a UDP listener opened inside the container', function () {
     }
 })->skip(integration_skip_reason('pasta') !== null, integration_skip_reason('pasta') ?? '');
 
+test('Pasta follows TCP listener changes without replacing the container', function () {
+    $podman = integration_podman();
+    $probeName = integration_name('pasta-change-probe');
+    $targetName = integration_name('pasta-change');
+    $created = [];
+
+    try {
+        integration_host_probe($podman, $probeName);
+        $created[] = $probeName;
+        $port = integration_unused_host_port($podman, $probeName);
+        $result = $podman->create(new ContainerDefinition(
+            $targetName,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', 'exec sleep 300'],
+            pastaAutoPublish: true,
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created[] = $targetName;
+        $containerId = $result->data['container']['id'];
+        expect($podman->start($targetName)->status)->toBe(0);
+
+        $startListener = "busybox nc -lk -p $port -e /bin/cat >/dev/null 2>&1 & echo \$! >/tmp/nc.pid";
+        expect($podman->exec($targetName, ['sh', '-c', $startListener])->status)->toBe(0);
+        expect(integration_wait_for_host_port($port))->toBeTrue('Pasta did not publish the new TCP listener.');
+
+        $stopped = $podman->exec($targetName, ['sh', '-c', 'kill "$(cat /tmp/nc.pid)"']);
+        expect($stopped->status)->toBe(0, $stopped->stderr . $stopped->stdout);
+        $closed = false;
+        $closeDeadline = microtime(true) + 10;
+        do {
+            $probe = $podman->exec($probeName, ['busybox', 'nc', '-z', '-w', '1', '127.0.0.1', (string) $port]);
+            if (!$probe->succeeded()) {
+                $closed = true;
+                break;
+            }
+            usleep(250_000);
+        } while (microtime(true) < $closeDeadline);
+        expect($closed)->toBeTrue('Pasta kept forwarding after the TCP listener stopped.');
+
+        expect($podman->exec($targetName, ['sh', '-c', $startListener])->status)->toBe(0);
+        expect(integration_wait_for_host_port($port))->toBeTrue('Pasta did not republish the restarted TCP listener.');
+        expect($podman->inspect($targetName)->data['container']['id'])->toBe($containerId);
+    } finally {
+        foreach ($created as $name) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(integration_skip_reason('pasta') !== null, integration_skip_reason('pasta') ?? '');
+
 test('EXPOSE host mappings', function () {
     $podman = integration_podman();
     $first = integration_name('ports-a');
