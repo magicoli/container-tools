@@ -539,4 +539,95 @@ test('published TCP port accepts a connection from the test host', function () {
         }
     }
 })->skip(integration_skip_reason('external') !== null, integration_skip_reason('external') ?? '');
+
+test('local host receives a published TCP response', function () {
+    $podman = integration_podman();
+    $name = integration_name('local-tcp-echo');
+    $port = random_int(30000, 45000);
+    $created = false;
+
+    try {
+        $result = $podman->create(new ContainerDefinition(
+            $name,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', "busybox nc -lk -p $port -e /bin/cat >/dev/null 2>&1"],
+            portForwards: [new PortForward($port, $port, 'tcp', '127.0.0.1')],
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created = true;
+        expect($podman->start($name)->status)->toBe(0);
+        expect(integration_echo_response('tcp', '127.0.0.1', $port))
+            ->toStartWith('port-probe-');
+    } finally {
+        if ($created) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(
+    integration_skip_reason() !== null || !integration_is_local_connection(),
+    integration_skip_reason() ?? 'select a local Podman connection',
+);
+
+test('local host receives a published UDP response', function () {
+    $podman = integration_podman();
+    $name = integration_name('local-udp-echo');
+    $port = random_int(30000, 45000);
+    $created = false;
+
+    try {
+        $result = $podman->create(new ContainerDefinition(
+            $name,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', "busybox nc -u -l -p $port -e /bin/cat"],
+            portForwards: [new PortForward($port, $port, 'udp', '127.0.0.1')],
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created = true;
+        expect($podman->start($name)->status)->toBe(0);
+        sleep(2);
+        $response = integration_echo_response('udp', '127.0.0.1', $port);
+        expect($response)->toBeString('Local UDP listener did not return a response');
+        expect($response)
+            ->toStartWith('port-probe-');
+    } finally {
+        if ($created) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(
+    integration_skip_reason() !== null || !integration_is_local_connection(),
+    integration_skip_reason() ?? 'select a local Podman connection',
+);
+
+test('remote host receives a published UDP response', function () {
+    $podman = integration_podman();
+    $name = integration_name('remote-udp-echo');
+    $host = trim((string) getenv('CONTAINER_TEST_EXTERNAL_HOST'));
+    $port = random_int(30000, 45000);
+    $created = false;
+
+    try {
+        $result = $podman->create(new ContainerDefinition(
+            $name,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', "busybox nc -u -l -p $port -e /bin/cat"],
+            portForwards: [new PortForward($port, $port, 'udp')],
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created = true;
+        expect($podman->start($name)->status)->toBe(0);
+        sleep(2);
+        $response = integration_echo_response('udp', $host, $port);
+        expect($response)->toBeString("No UDP echo from $host:$port");
+        expect($response)
+            ->toStartWith('port-probe-');
+    } finally {
+        if ($created) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(
+    integration_skip_reason('external') !== null || integration_is_local_connection(),
+    integration_skip_reason('external') ?? 'select a remote Podman connection',
+);
 });

@@ -88,6 +88,34 @@ function integration_unused_host_port(Podman $podman, string $probeName): int
     );
 }
 
+function integration_is_local_connection(): bool
+{
+    $uri = integration_selected_connection_uri();
+    if ($uri === null) {
+        return true;
+    }
+    $host = parse_url($uri, PHP_URL_HOST);
+
+    return !is_string($host) || in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true);
+}
+
+function integration_echo_response(string $protocol, string $host, int $port): ?string
+{
+    $address = filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? "[$host]" : $host;
+    $socket = @stream_socket_client("$protocol://$address:$port", $errorCode, $errorMessage, 3);
+    if (!is_resource($socket)) {
+        return null;
+    }
+
+    stream_set_timeout($socket, 3);
+    $message = 'port-probe-' . bin2hex(random_bytes(6));
+    fwrite($socket, $message);
+    $response = fread($socket, strlen($message));
+    fclose($socket);
+
+    return $response === $message ? $response : null;
+}
+
 function integration_host_probe(Podman $podman, string $name): void
 {
     $result = $podman->create(
