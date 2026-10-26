@@ -270,4 +270,54 @@ test('EXPOSE host mappings', function () {
         }
     }
 })->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
+
+test('publishes explicit TCP and UDP mappings', function () {
+    $podman = integration_podman();
+    $probeName = integration_name('ports-probe');
+    $targetName = integration_name('ports-explicit');
+    $created = [];
+
+    try {
+        integration_host_probe($podman, $probeName);
+        $created[] = $probeName;
+        $occupied = $podman->hostPorts()->data['ports'];
+        $available = array_values(array_diff(range(20000, 45000), $occupied));
+        expect(count($available))->toBeGreaterThan(1);
+        $tcpHostPort = $available[0];
+        $udpHostPort = $available[1];
+        $tcpContainerPort = 19080;
+        $udpContainerPort = 19081;
+        $listener = sprintf(
+            'busybox nc -l -p %d > /tmp/tcp-request & busybox nc -u -l -p %d > /tmp/udp-request & exec sleep 300',
+            $tcpContainerPort,
+            $udpContainerPort,
+        );
+
+        $result = $podman->create(new ContainerDefinition(
+            $targetName,
+            'docker.io/library/alpine:3.24',
+            command: ['sh', '-c', $listener],
+            portForwards: [
+                new PortForward($tcpHostPort, $tcpContainerPort, 'tcp', '127.0.0.1'),
+                new PortForward($udpHostPort, $udpContainerPort, 'udp', '127.0.0.1'),
+            ],
+        ));
+        expect($result->status)->toBe(0, $result->stderr . $result->stdout);
+        $created[] = $targetName;
+        expect($podman->start($targetName)->status)->toBe(0);
+        expect($podman->inspect($targetName)->data['container']['ports'])->toContain(
+            ['container' => "$tcpContainerPort/tcp", 'host_ip' => '127.0.0.1', 'host_port' => (string) $tcpHostPort],
+            ['container' => "$udpContainerPort/udp", 'host_ip' => '127.0.0.1', 'host_port' => (string) $udpHostPort],
+        );
+
+        expect($podman->exec($probeName, ['sh', '-c', "printf tcp-request | busybox nc -w 2 127.0.0.1 $tcpHostPort"])->status)->toBe(0);
+        expect($podman->exec($probeName, ['sh', '-c', "printf udp-request | busybox nc -u -w 2 127.0.0.1 $udpHostPort"])->status)->toBe(0);
+        expect(trim($podman->exec($targetName, ['cat', '/tmp/tcp-request'])->stdout))->toBe('tcp-request');
+        expect(trim($podman->exec($targetName, ['cat', '/tmp/udp-request'])->stdout))->toBe('udp-request');
+    } finally {
+        foreach ($created as $name) {
+            $podman->destroy($name);
+        }
+    }
+})->skip(integration_skip_reason() !== null, integration_skip_reason() ?? '');
 });
